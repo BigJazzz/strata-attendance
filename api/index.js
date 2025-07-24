@@ -79,13 +79,20 @@ app.get('/api/strata-plans', async (req, res) => {
     console.log("[SERVER LOG] /api/strata-plans: Querying database for all strata plans.");
     const result = await db.execute('SELECT * FROM strata_plans ORDER BY id');
     
-    const plans = result.rows.map(row => ({
-      sp: row[0],
-      suburb: row[1]
-    }));
-    
-    console.log(`[SERVER LOG] /api/strata-plans: Found ${plans.length} plans.`);
-    res.json({ success: true, plans: plans });
+    // Add a defensive check to ensure result.rows is an array
+    if (result && Array.isArray(result.rows)) {
+        const plans = result.rows.map(row => ({
+          sp: row[0],
+          suburb: row[1]
+        }));
+        
+        console.log(`[SERVER LOG] /api/strata-plans: Found and processed ${plans.length} plans.`);
+        res.json({ success: true, plans: plans });
+    } else {
+        console.error("[SERVER LOG] /api/strata-plans: Database query did not return a valid 'rows' array.", result);
+        // Return success with an empty array to prevent the frontend from failing
+        res.json({ success: true, plans: [] });
+    }
 
   } catch (error) {
     console.error("[SERVER LOG] /api/strata-plans: An error occurred during database query.", error);

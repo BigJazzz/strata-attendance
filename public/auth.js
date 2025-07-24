@@ -1,15 +1,28 @@
-// auth.js
-
 import { apiGet, apiPost } from './utils.js';
 import { showModal, showToast } from './utils.js';
 import { API_BASE } from './config.js';
 
+// --- Helpers ---
+
+function getAuthToken() {
+  return document.cookie
+    .split('; ')
+    .find(r => r.startsWith('authToken='))
+    ?.split('=')[1];
+}
+
+function authHeaders(json = true) {
+  const token = getAuthToken();
+  return {
+    ...(json && { 'Content-Type': 'application/json' }),
+    ...(token && { Authorization: `Bearer ${token}` })
+  };
+}
+
 // --- Login & Logout ---
 
-// Handles the login form submission
-export const handleLogin = async (event) => {
+export async function handleLogin(event) {
   if (event) event.preventDefault();
-
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
   const loginStatus = document.getElementById('login-status');
@@ -25,15 +38,11 @@ export const handleLogin = async (event) => {
   try {
     const data = await apiPost('/login', { username, password });
     if (data.success && data.token) {
-      // Persist token and user info
       document.cookie = `authToken=${data.token};max-age=604800;path=/;SameSite=Lax`;
       sessionStorage.setItem('attendanceUser', JSON.stringify(data.user));
-
-      // Optional: store script/app version
       if (data.scriptVersion) {
         sessionStorage.setItem('scriptVersion', data.scriptVersion);
       }
-
       return data;
     } else {
       throw new Error(data.error || 'Invalid username or password.');
@@ -43,56 +52,51 @@ export const handleLogin = async (event) => {
     loginStatus.style.color = 'red';
     return null;
   }
-};
+}
 
-// Clears session and reloads the page
-export const handleLogout = () => {
+export function handleLogout() {
   sessionStorage.removeItem('attendanceUser');
   document.cookie = 'authToken=; max-age=0; path=/;';
   location.reload();
-};
+}
 
+// --- User Management (Admin) ---
 
-// --- User Management ---
-
-// Fetches and renders the user list (Admin only)
-export const loadUsers = async () => {
+export async function loadUsers() {
   try {
     const data = await apiGet('/users');
     if (!data.success) throw new Error(data.error || 'Failed to load users.');
 
-    const sessionUser = JSON.parse(sessionStorage.getItem('attendanceUser'));
+    const currentUser = JSON.parse(sessionStorage.getItem('attendanceUser'));
     const tbody = document.getElementById('user-list-body');
     tbody.innerHTML = '';
 
     data.users.forEach(user => {
-      const isSelf = user.username === sessionUser.username;
-      let actions = `
+      const isSelf = user.username === currentUser.username;
+      const actions = `
         <select class="user-actions-select" data-username="${user.username}">
           <option value="">Select Action</option>
           <option value="change_sp">Change SP Access</option>
           <option value="reset_password">Reset Password</option>
+          ${!isSelf ? '<option value="remove">Remove User</option>' : ''}
+        </select>
       `;
-      if (!isSelf) actions += `<option value="remove">Remove User</option>`;
-      actions += `</select>`;
-
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${user.username}</td>
-        <td>${user.role}</td>
-        <td>${user.spAccess || 'All'}</td>
-        <td>${actions}</td>
-      `;
-      tbody.appendChild(tr);
+      tbody.insertAdjacentHTML('beforeend', `
+        <tr>
+          <td>${user.username}</td>
+          <td>${user.role}</td>
+          <td>${user.spAccess || 'All'}</td>
+          <td>${actions}</td>
+        </tr>
+      `);
     });
   } catch (err) {
     console.error('loadUsers error:', err);
     if (err.message.includes('Authentication failed')) handleLogout();
   }
-};
+}
 
-// Prompts for new user details and creates the user
-export const handleAddUser = async () => {
+export async function handleAddUser() {
   const uRes = await showModal("Enter new user's username:", { showInput: true, confirmText: 'Next' });
   if (!uRes.confirmed || !uRes.value) return;
 
@@ -103,7 +107,7 @@ export const handleAddUser = async () => {
   if (!rRes.confirmed || !rRes.value) return;
 
   const role = rRes.value.trim();
-  if (role !== 'Admin' && role !== 'User') {
+  if (!['Admin', 'User'].includes(role)) {
     showToast('Role must be "Admin" or "User".', 'error');
     return;
   }
@@ -112,19 +116,14 @@ export const handleAddUser = async () => {
   if (role === 'User') {
     const spRes = await showModal("Enter SP Access number:", { showInput: true, confirmText: 'Add User' });
     if (!spRes.confirmed || !spRes.value) {
-      showToast('SP Access required for User role.', 'error');
+      showToast('SP Access is required for User role.', 'error');
       return;
     }
     spAccess = spRes.value;
   }
 
   try {
-    const data = await apiPost('/users', {
-      username: uRes.value,
-      password: pRes.value,
-      role,
-      spAccess
-    });
+    const data = await apiPost('/users', { username: uRes.value, password: pRes.value, role, spAccess });
     if (data.success) {
       showToast('User added successfully.', 'success');
       loadUsers();
@@ -135,10 +134,9 @@ export const handleAddUser = async () => {
     showToast(`Failed to add user: ${err.message}`, 'error');
     if (err.message.includes('Authentication failed')) handleLogout();
   }
-};
+}
 
-// Deletes a user when “Remove User” is selected
-export const handleRemoveUser = async (e) => {
+export async function handleRemoveUser(e) {
   if (!e.target.matches('.user-actions-select')) return;
   if (e.target.value !== 'remove') {
     e.target.value = '';
@@ -147,16 +145,12 @@ export const handleRemoveUser = async (e) => {
 
   const username = e.target.dataset.username;
   const confirm = await showModal(`Remove user "${username}"?`, { confirmText: 'Yes, Remove' });
-  if (!confirm.confirmed) {
-    e.target.value = '';
-    return;
-  }
+  if (!confirm.confirmed) return;
 
   try {
-    const token = document.cookie.split('; ').find(r => r.startsWith('authToken=')).split('=')[1];
     const res = await fetch(`${API_BASE}/users/${username}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: authHeaders(false)
     });
     const data = await res.json();
 
@@ -172,66 +166,50 @@ export const handleRemoveUser = async (e) => {
   } finally {
     e.target.value = '';
   }
-};
+}
 
 // --- Password & Access Updates ---
 
-// Change the logged-in user's password
-export const handleChangePassword = async () => {
+export async function handleChangePassword() {
   const pRes = await showModal("Enter your new password:", {
     showInput: true, inputType: 'password', confirmText: 'Change Password'
   });
-  if (!pRes.confirmed) return;
-  if (!pRes.value) {
+  if (!pRes.confirmed || !pRes.value) {
     showToast('Password cannot be blank.', 'error');
     return;
   }
 
   try {
-    const sessionUser = JSON.parse(sessionStorage.getItem('attendanceUser'));
-    const token = document.cookie.split('; ').find(r => r.startsWith('authToken=')).split('=')[1];
-    const res = await fetch(`${API_BASE}/users/${sessionUser.username}/password`, {
+    const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
+    const res = await fetch(`${API_BASE}/users/${user.username}/password`, {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ newPassword: pRes.value })
     });
     const data = await res.json();
-
-    if (data.success) {
-      showToast('Password changed successfully.', 'success');
-    } else {
-      throw new Error(data.error);
-    }
+    if (data.success) showToast('Password changed successfully.', 'success');
+    else throw new Error(data.error);
   } catch (err) {
     showToast(`Failed to change password: ${err.message}`, 'error');
     if (err.message.includes('Authentication failed')) handleLogout();
   }
-};
+}
 
-// Admin: Change another user’s strata-plan access
-export const handleChangeSpAccess = async (username) => {
-  const spRes = await showModal(`Enter new SP Access for ${username} (leave blank for All):`, {
+export async function handleChangeSpAccess(username) {
+  const spRes = await showModal(`Enter new SP Access for ${username} (blank for All):`, {
     showInput: true, confirmText: 'Update'
   });
   if (!spRes.confirmed) return;
 
   try {
-    const token = document.cookie.split('; ').find(r => r.startsWith('authToken=')).split('=')[1];
     const res = await fetch(`${API_BASE}/users/${username}/plan`, {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
+      headers: authHeaders(),
       body: JSON.stringify({ plan_id: spRes.value || null })
     });
     const data = await res.json();
-
     if (data.success) {
-      showToast('SP Access updated successfully.', 'success');
+      showToast('SP Access updated.', 'success');
       loadUsers();
     } else {
       throw new Error(data.error);
@@ -240,28 +218,24 @@ export const handleChangeSpAccess = async (username) => {
     showToast(`Failed to update SP Access: ${err.message}`, 'error');
     if (err.message.includes('Authentication failed')) handleLogout();
   }
-};
+}
 
-// Admin: Reset a user’s password to a default or random one
-export const handleResetPassword = async (username) => {
-  const confirm = await showModal(`Reset password for ${username}?`, { confirmText: 'Yes, Reset' });
+export async function handleResetPassword(username) {
+  const confirm = await showModal(`Reset password for ${username}?`, {
+    confirmText: 'Yes, Reset'
+  });
   if (!confirm.confirmed) return;
 
   try {
-    const token = document.cookie.split('; ').find(r => r.startsWith('authToken=')).split('=')[1];
     const res = await fetch(`${API_BASE}/users/${username}/reset-password`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` }
+      headers: authHeaders(false)
     });
     const data = await res.json();
-
-    if (data.success) {
-      showToast('Password reset successfully.', 'success');
-    } else {
-      throw new Error(data.error);
-    }
+    if (data.success) showToast('Password reset.', 'success');
+    else throw new Error(data.error);
   } catch (err) {
     showToast(`Failed to reset password: ${err.message}`, 'error');
     if (err.message.includes('Authentication failed')) handleLogout();
   }
-};
+}

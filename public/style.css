@@ -15,12 +15,48 @@ body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
 }
 
-h1 { 
+.header-container { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+    margin-bottom: 1rem; 
+    flex-wrap: wrap; 
+    gap: 1rem; 
+}
+
+h1, h2 { 
     color: #333; 
+}
+
+h1 { 
+    font-size: 1.75rem; 
+    margin: 0; 
+    flex-grow: 1; 
+}
+
+h1 small { 
+    display: block; 
+    font-size: 0.8rem; 
+    font-weight: normal; 
+    color: #6c757d; 
 }
 
 .hidden { 
     display: none; 
+}
+
+#quorum-display { 
+    padding: 0.5rem 1rem; 
+    border-radius: 4px; 
+    font-weight: bold; 
+    color: white; 
+    text-align: center; 
+    line-height: 1.2; 
+}
+
+#quorum-display small { 
+    font-weight: normal; 
+    font-size: 0.8em; 
 }
 
 .form-group { 
@@ -42,6 +78,24 @@ input[type="text"], input[type="password"], select {
     font-size: 1rem; 
 }
 
+#checkbox-container {
+    border: 1px solid #eee;
+    padding: 1rem;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.checkbox-item:last-child {
+    margin-bottom: 0;
+}
+
+.checkbox-item { 
+    display: block; 
+    margin-bottom: 0.5rem; 
+}
+
 button { 
     background-color: #007bff; 
     color: white; 
@@ -58,10 +112,272 @@ button:hover {
     background-color: #0056b3; 
 }
 
-#login-status { 
+button:disabled { 
+    background-color: #aaa; 
+    cursor: not-allowed; 
+}
+
+#email-pdf-btn {
+    width: auto; /* Override default full-width */
+    margin-top: 0; /* Remove top margin */
+}
+
+#email-pdf-btn, #change-meeting-type-btn { 
+    background-color: #17a2b8; 
+    margin-top: 1rem; 
+}
+
+#email-pdf-btn:hover, #change-meeting-type-btn:hover { 
+    background-color: #138496; 
+}
+
+#sync-btn { 
+    width: auto;
+    float: right; /* Use float to align right */
+    margin-top: -45px; /* Adjust vertical position to align with heading */
+    margin-bottom: 1rem;
+}
+
+#sync-btn:hover { 
+    background-color: #5a6268; 
+}
+
+#clear-cache-btn, #logout-btn { 
+    background-color: #dc3545; 
+    margin-top: 0.5rem; 
+}
+
+#clear-cache-btn:hover, #logout-btn:hover { 
+    background-color: #c82333; 
+}
+
+#status, #login-status { 
     text-align: center; 
     margin-top: 1rem; 
     font-weight: bold; 
     min-height: 1.2em; 
-    color: red;
+}
+
+.attendee-section, .user-management-section { 
+    margin-top: 2rem; 
+    border-top: 1px solid #eee; 
+    padding-top: 1.5rem; 
+}
+
+.attendee-section h2 { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center; 
+}
+
+.attendee-table { 
+    width: 100%; 
+    border-collapse: collapse; 
+    margin-top: 1rem; 
+}
+
+.attendee-table th, .attendee-table td { 
+    border: 1px solid #dee2e6; 
+    padding: 8px; 
+    text-align: left; 
+    vertical-align: middle; 
+}
+
+.attendee-table th { 
+    background-color: #f2f2f2; 
+}
+
+.delete-btn { 
+    background: #dc3545; 
+    color: white; 
+    border: none; 
+    padding: 5px 10px; 
+    border-radius: 4px; 
+    cursor: pointer; 
+}
+
+#company-rep-group, #proxy-holder-group { 
+    display: none; 
+}
+
+/* Modal Styles */
+.modal-overlay { 
+    position: fixed; 
+    top: 0; 
+    left: 0; 
+    width: 100%; 
+    height: 100%; 
+    background: rgba(0,0,0,0.6); 
+    display: none; 
+    justify-content: center; 
+    align-items: center; 
+    z-index: 1000; 
+}
+
+.modal-content { 
+    background: white; 
+    padding: 2rem; 
+    border-radius: 8px; 
+    width: 90%; 
+    max-width: 500px; 
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3); 
+}
+
+.modal-content p { 
+    margin-top: 0; 
+}
+
+.modal-input { 
+    width: 100%; 
+    padding: 0.5rem; 
+    margin-top: 1rem; 
+    border: 1px solid #ccc; 
+    border-radius: 4px; 
+}
+
+.modal-buttons { 
+    margin-top: 1.5rem; 
+    text-align: right; 
+}
+
+.modal-buttons button { 
+    width: auto; 
+    margin-left: 0.5rem; 
+    padding: 0.5rem 1rem; 
+}
+
+.modal-confirm-btn { 
+    background-color: #28a745; 
+}
+
+.modal-cancel-btn { 
+    background-color: #6c757d; 
+}
+
+/* Toaster Styles */
+#toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.toast {
+    padding: 1rem 1.5rem;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    color: white;
+    font-size: 1rem;
+    opacity: 0;
+    transform: translateX(100%);
+    transition: all 0.4s ease-in-out;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.toast.success { background-color: #28a745; }
+.toast.error { background-color: #dc3545; }
+.toast.info { background-color: #17a2b8; }
+
+.form-group-inline {
+    display: flex;
+    align-items: flex-end;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.lot-number-wrapper {
+    flex-grow: 1;
+}
+
+.proxy-checkbox-wrapper {
+    padding-bottom: 0.75rem; /* Aligns checkbox with the input field */
+}
+
+.proxy-checkbox-wrapper .checkbox-item {
+    margin-bottom: 0;
+}
+
+/* --- Tab Styles --- */
+.tab-container {
+    overflow: hidden;
+    border: 1px solid #ccc;
+    background-color: #f1f1f1;
+    border-radius: 8px 8px 0 0;
+}
+
+.tab-container button {
+    background-color: inherit;
+    float: left;
+    border: none;
+    outline: none;
+    cursor: pointer;
+    padding: 14px 16px;
+    transition: 0.3s;
+    color: #333;
+    width: auto; /* Override the default 100% width for buttons */
+}
+
+.tab-container button:hover {
+    background-color: #ddd;
+}
+
+.tab-container button.active {
+    background-color: #ccc;
+}
+
+.tab-content {
+    display: none;
+    padding: 20px 12px;
+    border: 1px solid #ccc;
+    border-top: none;
+    border-radius: 0 0 8px 8px;
+}
+
+#sync-btn { 
+    width: auto;
+    display: block; /* To allow margin auto to work */
+    margin-left: auto; /* Aligns the button to the right */
+    margin-right: 0;
+    margin-top: 1rem; /* Add some space above the button */
+    margin-bottom: 1rem; /* Add some space below the button */
+}
+
+.report-date-selector {
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+    display: flex; /* Add this */
+    align-items: flex-end; /* Add this to align items vertically */
+    gap: 0.5rem; /* Add this to create space between items */
+}
+
+.report-date-selector label {
+    font-weight: bold;
+    margin-bottom: 0; /* Adjust margin */
+    display: block;
+    flex-shrink: 0; /* Prevent label from shrinking */
+}
+
+#report-date {
+    width: auto; /* Allow input to size naturally */
+    flex-grow: 1; /* Allow input to fill available space */
+}
+
+.strata-plan-container {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem; /* Adds a small space between the dropdown and the button */
+}
+
+/* Override default button width and margin for this specific button */
+#change-meeting-type-btn {
+    width: auto;
+    margin-top: 0;
+    flex-shrink: 0; /* Prevent the button from shrinking if space is tight */
 }

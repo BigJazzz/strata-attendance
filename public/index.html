@@ -5,8 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Attendance Form</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
+
+    <div id="toast-container"></div>
+
     <div class="container">
         <div id="login-section">
             <h1>Login</h1>
@@ -25,20 +29,133 @@
         </div>
 
         <div id="main-app" class="hidden">
-            <h1>Welcome</h1>
-            <p id="user-display">You are logged in.</p>
-
-            <div class="form-group">
-                <label for="strata-plan-select">Strata Plan</label>
-                <select id="strata-plan-select" disabled>
-                    <option value="">Loading plans...</option>
-                </select>
+            <div class="header-container">
+                <h1>
+                    <span id="meeting-title">Attendance Form</span>
+                    <small id="meeting-date"></small>
+                </h1>
+                <div id="quorum-display">Quorum: ...%</div>
             </div>
 
-            <button id="logout-btn">Logout</button>
+            <div class="tab-container">
+                <button id="check-in-tab-btn" class="tab-link active">Check In</button>
+                <button id="admin-tab-btn" class="tab-link">Admin Panel</button>
+            </div>
+
+            <div id="check-in-tab" class="tab-content" style="display: block;">
+                <form id="attendance-form">
+                    <div id="strata-plan-wrapper" class="form-group">
+                        <label for="strata-plan-select">Strata Plan</label>
+                        <div class="strata-plan-container">
+                            <select id="strata-plan-select" disabled>
+                                <option value="">Loading plans...</option>
+                            </select>
+                            <button type="button" id="change-meeting-type-btn" class="hidden">Change Meeting Type</button>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group form-group-inline">
+                        <div class="lot-number-wrapper">
+                            <label for="lot-number">Lot Number</label>
+                            <input type="text" id="lot-number" required disabled>
+                        </div>
+                        <div class="proxy-checkbox-wrapper">
+                             <label class="checkbox-item"><input type="checkbox" id="is-proxy"> Voting by Proxy?</label>
+                        </div>
+                    </div>
+
+                    <hr>
+                    <div class="form-group">
+                        <label id="owner-label">Owner/s</label>
+                        <div id="checkbox-container">
+                            <p>Select a Strata Plan to begin.</p>
+                        </div>
+                    </div>
+                    <div class="form-group" id="company-rep-group">
+                        <label for="company-rep">Company Representative</label>
+                        <input type="text" id="company-rep" placeholder="Enter representative's name (optional)">
+                    </div>
+                    <div class="form-group" id="proxy-holder-group">
+                        <label for="proxy-holder-lot">Proxy holder lot number/name</label>
+                        <input type="text" id="proxy-holder-lot" placeholder="Enter lot number or name holding the proxy">
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-item" id="financial-label"><input type="checkbox" id="is-financial"> Is Financial?</label>
+                    </div>
+                    <button type="submit" id="submit-button">Submit</button>
+                    <p id="status"></p>
+                </form>
+
+                <div class="attendee-section">
+                    <h2>Current Attendees <span id="person-count"></span></h2>
+                    <button type="button" id="sync-btn" disabled>Sync Submissions</button>
+                    <table class="attendee-table">
+                        <thead>
+                            <tr>
+                                <th>Lot</th>
+                                <th>Unit</th>
+                                <th>Owner/Rep</th>
+                                <th>Company</th>
+                                <th>Delete</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendee-table-body"></tbody>
+                    </table>
+                
+                    <div class="report-date-selector">
+                        <label for="report-date">Select Report Date</label>
+                        <select id="report-date" disabled>
+                            <option value="">No dates available</option>
+                        </select>
+                        <button type="button" id="email-pdf-btn">Email PDF Report</button> 
+                    </div>
+                                  
+                </div>
+            </div>
+
+            <div id="admin-tab" class="tab-content">
+                <div class="user-management-section">
+                    <h2>User Management</h2>
+                    <p>Logged in as: <b id="user-display"></b></p>
+                    <button type="button" id="change-password-btn">Change My Password</button>
+                    <div id="admin-panel" class="hidden">
+                        <hr style="margin: 2rem 0;">
+                        <h3>Admin Panel</h3>
+                        <table class="attendee-table">
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>Role</th>
+                                    <th>SP Access</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="user-list-body"></tbody>
+                        </table>
+                        <button type="button" id="add-user-btn" style="background-color: #28a745; margin-top: 1rem;">Add New User</button>
+                    </div>
+                </div>
+                <button type="button" id="clear-cache-btn">Clear Entire Cache</button>
+                <button type="button" id="logout-btn">Logout</button>
+            </div>
         </div>
     </div>
 
+    <div id="custom-modal" class="modal-overlay">
+        <div class="modal-content">
+            <p id="modal-text"></p>
+            <input type="text" id="modal-input" class="modal-input" style="display: none;">
+            <div class="modal-buttons">
+                <button id="modal-cancel-btn" class="modal-cancel-btn">Cancel</button>
+                <button id="modal-confirm-btn" class="modal-confirm-btn">Confirm</button>
+            </div>
+        </div>
+    </div>
+    
+    <script type="module" src="config.js"></script>
+    <script type="module" src="utils.js"></script>
+    <script type="module" src="ui.js"></script>
+    <script type="module" src="auth.js"></script>
     <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -13,29 +13,41 @@ console.log(`[SERVER LOG] Checking Environment Variables...`);
 console.log(`[SERVER LOG] sa_TURSO_DATABASE_URL is: ${dbUrl ? 'found' : 'MISSING'}`);
 console.log(`[SERVER LOG] sa_TURSO_AUTH_TOKEN is: ${dbToken ? 'found' : 'MISSING'}`);
 
-if (dbUrl && dbToken) {
-  try {
-    // FINAL CORRECTION: Using remoteOnly for a simpler, more compatible connection
-    db = createClient({
-      url: dbUrl,
-      authToken: dbToken,
-      remoteOnly: true, // This can resolve handshake issues in serverless environments
-    });
-    console.log("[SERVER LOG] Successfully created Turso DB client with remoteOnly.");
-  } catch (e) {
-    console.error("[SERVER LOG] Failed to create Turso DB client:", e);
-    db = null;
+// Asynchronously initialize the database connection
+async function initializeDatabase() {
+  if (dbUrl && dbToken) {
+    try {
+      const client = createClient({
+        url: dbUrl,
+        authToken: dbToken,
+      });
+      console.log("[SERVER LOG] Turso DB client created. Performing warm-up query...");
+      
+      // Perform a simple query to ensure the connection is live and ready
+      await client.execute("SELECT 1");
+      
+      console.log("[SERVER LOG] Database warm-up query successful. Connection is live.");
+      return client;
+    } catch (e) {
+      console.error("[SERVER LOG] CRITICAL: Database initialization failed.", e);
+      return null;
+    }
+  } else {
+      console.error("[SERVER LOG] CRITICAL: Database environment variables are not set.");
+      return null;
   }
-} else {
-    console.error("[SERVER LOG] CRITICAL: Database environment variables are not set.");
-    db = null;
 }
+
+// Initialize the database when the server starts
+initializeDatabase().then(client => {
+  db = client;
+});
 
 
 // --- API Endpoints ---
 app.post('/api/login', async (req, res) => {
   if (!db) {
-    console.error("[SERVER LOG] /api/login: Cannot process request because database is not configured.");
+    console.error("[SERVER LOG] /api/login: Cannot process request because database is not configured or initialization failed.");
     return res.status(500).json({ error: 'Server is not configured to connect to the database.' });
   }
 
@@ -46,19 +58,16 @@ app.post('/api/login', async (req, res) => {
   }
 
   try {
-    console.log(`[SERVER LOG] /api/login: Querying database for user "${username}".`);
     const result = await db.execute({
       sql: 'SELECT * FROM users WHERE username = ?',
       args: [username],
     });
 
     if (result.rows.length === 0) {
-      console.warn(`[SERVER LOG] /api/login: Login failed for "${username}". User not found.`);
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
     
     const user = result.rows[0];
-    console.log(`[SERVER LOG] /api/login: Login successful for "${username}".`);
     res.json({ success: true, user: { username: user.username, role: user.role } });
 
   } catch (error) {
@@ -69,12 +78,11 @@ app.post('/api/login', async (req, res) => {
 
 app.get('/api/strata-plans', async (req, res) => {
   if (!db) {
-    console.error("[SERVER LOG] /api/strata-plans: Cannot process request because database is not configured.");
+    console.error("[SERVER LOG] /api/strata-plans: Cannot process request because database is not configured or initialization failed.");
     return res.status(500).json({ error: 'Server is not configured to connect to the database.' });
   }
   
   try {
-    console.log("[SERVER LOG] /api/strata-plans: Querying database for all strata plans.");
     const result = await db.execute('SELECT * FROM strata_plans ORDER BY id');
 
     if (result && Array.isArray(result.rows)) {
@@ -83,10 +91,8 @@ app.get('/api/strata-plans', async (req, res) => {
           suburb: row[1]
         }));
         
-        console.log(`[SERVER LOG] /api/strata-plans: Found and processed ${plans.length} plans.`);
         res.json({ success: true, plans: plans });
     } else {
-        console.error("[SERVER LOG] /api/strata-plans: Database query did not return a valid 'rows' array.", result);
         res.json({ success: true, plans: [] });
     }
 

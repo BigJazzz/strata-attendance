@@ -1,7 +1,7 @@
 import express from 'express';
 import { createClient } from '@libsql/client';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcrypt';
+import crypto from 'crypto';
 
 const app = express();
 app.use(express.json());
@@ -28,7 +28,12 @@ function authenticate(req, res, next) {
   }
 }
 
-// --- Login Endpoint ---
+// --- SHA-256 Password Hashing ---
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+// --- Login Endpoint (SHA-256 version) ---
 app.post('/api/login', async (req, res) => {
   try {
     const db = getDb();
@@ -37,13 +42,14 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Missing credentials.' });
     }
 
+    const hashed = hashPassword(password);
     const result = await db.execute({
       sql: 'SELECT id, username, password_hash, role, plan_id FROM users WHERE username = ?',
       args: [username]
     });
 
     const row = result.rows[0];
-    if (!row || !(await bcrypt.compare(password, row[2]))) {
+    if (!row || row[2] !== hashed) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 

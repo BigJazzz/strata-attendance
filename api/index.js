@@ -15,7 +15,7 @@ const db = createClient({
 // --- API Endpoints ---
 
 // Handles user login
-app.post('/api/login', async (req, res) => {
+app.post('/login', async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -45,7 +45,7 @@ app.post('/api/login', async (req, res) => {
 });
 
 // Fetches the list of strata plans
-app.get('/api/strata-plans', async (req, res) => {
+app.get('/strata-plans', async (req, res) => {
   try {
     const result = await db.execute('SELECT * FROM strata_plans ORDER BY id');
     

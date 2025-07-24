@@ -48,17 +48,19 @@ app.post('/api/login', async (req, res) => {
 
   try {
     console.log(`[SERVER LOG] /api/login: Querying database for user "${username}".`);
-    const result = await db.execute({
-      sql: 'SELECT * FROM users WHERE username = ?',
-      args: [username],
-    });
+    // CORRECTED: Using db.batch() instead of db.execute()
+    const results = await db.batch([
+        { sql: 'SELECT * FROM users WHERE username = ?', args: [username] }
+    ], 'read');
 
-    if (result.rows.length === 0) {
+    const userResult = results[0]; // Get the result of the first statement in the batch
+
+    if (userResult.rows.length === 0) {
       console.warn(`[SERVER LOG] /api/login: Login failed for "${username}". User not found.`);
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
     
-    const user = result.rows[0];
+    const user = userResult.rows[0];
     // In a real app, you would compare the hashed password here
     console.log(`[SERVER LOG] /api/login: Login successful for "${username}".`);
     res.json({ success: true, user: { username: user.username, role: user.role } });
@@ -77,11 +79,15 @@ app.get('/api/strata-plans', async (req, res) => {
   
   try {
     console.log("[SERVER LOG] /api/strata-plans: Querying database for all strata plans.");
-    const result = await db.execute('SELECT * FROM strata_plans ORDER BY id');
-    
-    // Add a defensive check to ensure result.rows is an array
-    if (result && Array.isArray(result.rows)) {
-        const plans = result.rows.map(row => ({
+    // CORRECTED: Using db.batch() instead of db.execute()
+    const results = await db.batch([
+        'SELECT * FROM strata_plans ORDER BY id'
+    ], 'read');
+
+    const plansResult = results[0]; // Get the result of the first statement in the batch
+
+    if (plansResult && Array.isArray(plansResult.rows)) {
+        const plans = plansResult.rows.map(row => ({
           sp: row[0],
           suburb: row[1]
         }));
@@ -89,8 +95,7 @@ app.get('/api/strata-plans', async (req, res) => {
         console.log(`[SERVER LOG] /api/strata-plans: Found and processed ${plans.length} plans.`);
         res.json({ success: true, plans: plans });
     } else {
-        console.error("[SERVER LOG] /api/strata-plans: Database query did not return a valid 'rows' array.", result);
-        // Return success with an empty array to prevent the frontend from failing
+        console.error("[SERVER LOG] /api/strata-plans: Database query did not return a valid 'rows' array.", plansResult);
         res.json({ success: true, plans: [] });
     }
 

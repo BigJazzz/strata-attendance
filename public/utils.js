@@ -1,64 +1,58 @@
-// utils.js
-
 import { API_BASE } from './config.js';
 import { handleLogout } from './auth.js';
 
 /**
- * Helper for making GET requests to your API.
- * Automatically attaches Bearer token if present.
+ * Helper to fetch JWT token from cookies.
  */
-export async function apiGet(path) {
-  const url = `${API_BASE}${path}`;
-  const headers = { 'Content-Type': 'application/json' };
-
-  const token = document.cookie
+function getAuthToken() {
+  return document.cookie
     .split('; ')
     .find(row => row.startsWith('authToken='))
     ?.split('=')[1];
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+}
 
-  const response = await fetch(url, { method: 'GET', headers });
+/**
+ * Unified fetch helper for GET and POST requests.
+ */
+async function apiRequest(path, { method = 'GET', body = null } = {}) {
+  const token = getAuthToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token && { Authorization: `Bearer ${token}` })
+  };
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`GET ${path} failed: ${response.statusText} – ${errorText}`);
+    throw new Error(`${method} ${path} failed: ${response.statusText} – ${errorText}`);
   }
 
   const data = await response.json();
+
   if (data.error && data.error.includes('Authentication failed')) {
     handleLogout();
   }
+
   return data;
 }
 
 /**
- * Helper for making POST requests to your API.
- * Automatically attaches Bearer token if present.
+ * Helper for GET requests.
  */
-export async function apiPost(path, body) {
-  const url = `${API_BASE}${path}`;
-  const headers = { 'Content-Type': 'application/json' };
+export function apiGet(path) {
+  return apiRequest(path, { method: 'GET' });
+}
 
-  const token = document.cookie
-    .split('; ')
-    .find(row => row.startsWith('authToken='))
-    ?.split('=')[1];
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`POST ${path} failed: ${response.statusText} – ${errorText}`);
-  }
-
-  const data = await response.json();
-  if (data.error && data.error.includes('Authentication failed')) {
-    handleLogout();
-  }
-  return data;
+/**
+ * Helper for POST requests.
+ */
+export function apiPost(path, body) {
+  return apiRequest(path, { method: 'POST', body });
 }
 
 /**
@@ -84,7 +78,7 @@ export function showModal(
     inputType = 'text',
     confirmText = 'Confirm',
     cancelText = 'Cancel',
-    isHtml = false,
+    isHtml = false
   } = {}
 ) {
   const modal = document.getElementById('custom-modal');
@@ -93,20 +87,16 @@ export function showModal(
   const btnConfirm = document.getElementById('modal-confirm-btn');
   const btnCancel = document.getElementById('modal-cancel-btn');
 
-  if (isHtml) modalText.innerHTML = text;
-  else modalText.textContent = text;
-
+  modalText[isHtml ? 'innerHTML' : 'textContent'] = text;
   modalInput.style.display = showInput ? 'block' : 'none';
   modalInput.type = inputType;
   modalInput.value = '';
-
   btnConfirm.textContent = confirmText;
   btnCancel.textContent = cancelText;
   modal.style.display = 'flex';
 
   return new Promise(resolve => {
     modalResolve = resolve;
-
     btnConfirm.onclick = () => {
       modal.style.display = 'none';
       resolve({ confirmed: true, value: modalInput.value });
@@ -115,10 +105,9 @@ export function showModal(
       modal.style.display = 'none';
       resolve({ confirmed: false, value: null });
     };
-
-    modalInput.onkeydown = event => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
+    modalInput.onkeydown = e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
         btnConfirm.click();
       }
     };
@@ -140,7 +129,6 @@ function ensureToastContainer() {
 
 /**
  * Show a toast notification.
- * type can be 'success', 'error', or 'info'.
  */
 export function showToast(message, type = 'info', duration = 3000) {
   const container = ensureToastContainer();
@@ -149,10 +137,7 @@ export function showToast(message, type = 'info', duration = 3000) {
   toast.textContent = message;
   container.appendChild(toast);
 
-  // Animate in
   setTimeout(() => toast.classList.add('show'), 10);
-
-  // Animate out and remove
   setTimeout(() => {
     toast.classList.remove('show');
     toast.addEventListener('transitionend', () => toast.remove());
@@ -164,6 +149,7 @@ export function showToast(message, type = 'info', duration = 3000) {
  */
 export const getSubmissionQueue = () =>
   JSON.parse(localStorage.getItem('submissionQueue') || '[]');
+
 export const saveSubmissionQueue = queue =>
   localStorage.setItem('submissionQueue', JSON.stringify(queue));
 
@@ -172,6 +158,8 @@ export const saveSubmissionQueue = queue =>
  */
 export const clearStrataCache = () => {
   Object.keys(localStorage).forEach(key => {
-    if (key.startsWith('strata_')) localStorage.removeItem(key);
+    if (key.startsWith('strata_')) {
+      localStorage.removeItem(key);
+    }
   });
 };

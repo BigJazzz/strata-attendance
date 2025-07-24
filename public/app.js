@@ -8,107 +8,129 @@ const logoutBtn = document.getElementById('logout-btn');
 const strataPlanSelect = document.getElementById('strata-plan-select');
 
 // --- Helper for API calls ---
+function getAuthToken() {
+  return document.cookie
+    .split('; ')
+    .find(row => row.startsWith('authToken='))
+    ?.split('=')[1];
+}
+
 const apiRequest = async (endpoint, method = 'GET', body = null) => {
-    // No more API_BASE_URL needed!
-    const options = {
-        method,
-        headers: {
-            'Content-Type': 'application/json',
-        },
-    };
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(getAuthToken() && { 'Authorization': `Bearer ${getAuthToken()}` })
+  };
 
-    if (body) {
-        options.body = JSON.stringify(body);
+  const response = await fetch(endpoint, {
+    method,
+    headers,
+    ...(body ? { body: JSON.stringify(body) } : {})
+  });
+
+  if (!response.ok) {
+    let errorMessage = `API request to ${endpoint} failed (${response.status})`;
+    try {
+      const errorData = await response.json();
+      if (errorData.error) errorMessage = errorData.error;
+    } catch (_) {
+      // Fallback to generic message
     }
+    throw new Error(errorMessage);
+  }
 
-    const response = await fetch(endpoint, options);
-
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'An API error occurred.');
-    }
-
-    return response.json();
+  return response.json();
 };
 
 // --- Main Application Logic ---
 const handleLogin = async (event) => {
-    event.preventDefault();
-    loginStatus.textContent = 'Logging in...';
+  event.preventDefault();
+  loginStatus.textContent = 'Logging in...';
 
-    const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value;
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
 
-    try {
-        const result = await apiRequest('/api/login', 'POST', { username, password });
+  if (!username || !password) {
+    loginStatus.textContent = 'Username and password are required.';
+    loginStatus.style.color = 'red';
+    return;
+  }
 
-        if (result.success && result.user) {
-            sessionStorage.setItem('attendanceUser', JSON.stringify(result.user));
-            showMainApp(result.user);
-        } else {
-            throw new Error(result.error || 'Login failed.');
-        }
-    } catch (error) {
-        console.error('Login failed:', error);
-        loginStatus.textContent = `Login failed: ${error.message}`;
+  try {
+    const result = await apiRequest('/api/login', 'POST', { username, password });
+
+    if (result.success && result.user && result.token) {
+      document.cookie = `authToken=${result.token};max-age=604800;path=/;SameSite=Lax`;
+      sessionStorage.setItem('attendanceUser', JSON.stringify(result.user));
+      showMainApp(result.user);
+    } else {
+      throw new Error(result.error || 'Login failed.');
     }
+  } catch (error) {
+    console.error('Login failed:', error);
+    loginStatus.textContent = `Login failed: ${error.message}`;
+    loginStatus.style.color = 'red';
+  }
 };
 
 const handleLogout = () => {
-    sessionStorage.removeItem('attendanceUser');
-    showLogin();
+  sessionStorage.removeItem('attendanceUser');
+  document.cookie = 'authToken=; max-age=0; path=/;';
+  showLogin();
 };
 
+// --- Load Available Strata Plans ---
 const populateStrataPlans = async () => {
-    strataPlanSelect.disabled = true;
-    strataPlanSelect.innerHTML = '<option value="">Loading plans...</option>';
+  strataPlanSelect.disabled = true;
+  strataPlanSelect.innerHTML = '<option value="">Loading plans...</option>';
 
-    try {
-        const result = await apiRequest('/api/strata-plans');
+  try {
+    const result = await apiRequest('/api/strata-plans');
 
-        if (result.success && result.plans) {
-            strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
-            result.plans.forEach(plan => {
-                const option = document.createElement('option');
-                option.value = plan.sp;
-                option.textContent = `${plan.sp} - ${plan.suburb}`;
-                strataPlanSelect.appendChild(option);
-            });
-            strataPlanSelect.disabled = false;
-        } else {
-            throw new Error(result.error || 'Could not load plans.');
-        }
-    } catch (error) {
-        console.error('Failed to load plans:', error);
-        strataPlanSelect.innerHTML = `<option value="">${error.message}</option>`;
+    if (result.success && result.plans) {
+      strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
+      result.plans.forEach(plan => {
+        const option = document.createElement('option');
+        option.value = plan.sp;
+        option.textContent = `${plan.sp} - ${plan.suburb}`;
+        strataPlanSelect.appendChild(option);
+      });
+    } else {
+      throw new Error(result.error || 'No plans returned.');
     }
+  } catch (error) {
+    console.error('Failed to load strata plans:', error);
+    strataPlanSelect.innerHTML = `<option value="">${error.message}</option>`;
+  } finally {
+    strataPlanSelect.disabled = false;
+  }
 };
 
 // --- UI Management ---
 const showMainApp = (user) => {
-    loginSection.classList.add('hidden');
-    mainAppSection.classList.remove('hidden');
-    userDisplay.textContent = `Logged in as: ${user.username} (${user.role})`;
-    populateStrataPlans();
+  loginSection.classList.add('hidden');
+  mainAppSection.classList.remove('hidden');
+  userDisplay.textContent = `Logged in as: ${user.username} (${user.role})`;
+  populateStrataPlans();
 };
 
 const showLogin = () => {
-    mainAppSection.classList.add('hidden');
-    loginSection.classList.remove('hidden');
-    loginStatus.textContent = '';
-    loginForm.reset();
+  mainAppSection.classList.add('hidden');
+  loginSection.classList.remove('hidden');
+  loginStatus.textContent = '';
+  loginStatus.style.color = '';
+  loginForm.reset();
 };
 
 // --- Initial Load ---
 document.addEventListener('DOMContentLoaded', () => {
-    loginForm.addEventListener('submit', handleLogin);
-    logoutBtn.addEventListener('click', handleLogout);
+  loginForm.addEventListener('submit', handleLogin);
+  logoutBtn.addEventListener('click', handleLogout);
 
-    const userString = sessionStorage.getItem('attendanceUser');
-    if (userString) {
-        const user = JSON.parse(userString);
-        showMainApp(user);
-    } else {
-        showLogin();
-    }
+  const userString = sessionStorage.getItem('attendanceUser');
+  if (getAuthToken() && userString) {
+    const user = JSON.parse(userString);
+    showMainApp(user);
+  } else {
+    showLogin();
+  }
 });

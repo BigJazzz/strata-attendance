@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Attendance Form</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <div id="login-section">
+            <h1>Login</h1>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required>
+                </div>
+                <button type="submit">Login</button>
+                <p id="login-status"></p>
+            </form>
+        </div>
+
+        <div id="main-app" class="hidden">
+            <h1>Welcome</h1>
+            <p id="user-display">You are logged in.</p>
+
+            <div class="form-group">
+                <label for="strata-plan-select">Strata Plan</label>
+                <select id="strata-plan-select" disabled>
+                    <option value="">Loading plans...</option>
+                </select>
+            </div>
+
+            <button id="logout-btn">Logout</button>
+        </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -23,6 +23,9 @@ function getDatabaseClient() {
     cachedClient = createClient({
       url: dbUrl,
       authToken: dbToken,
+      config: {
+        syncUrl: null  // Disables migration job checks
+      }
     });
     console.log("[DB INIT] Turso client cached.");
     return cachedClient;
@@ -31,7 +34,6 @@ function getDatabaseClient() {
     return null;
   }
 }
-
 // --- Login Endpoint ---
 app.post('/api/login', async (req, res) => {
   const db = getDatabaseClient();

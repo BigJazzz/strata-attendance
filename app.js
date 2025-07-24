@@ -1,6 +1,6 @@
 // --- Configuration ---
 // IMPORTANT: Replace this with the URL of your deployed Vercel backend
-const API_BASE_URL = 'https://your-backend-project.vercel.app';
+const API_BASE_URL = 'https://strata-attendance.vercel.app';
 
 // --- DOM Elements ---
 const loginSection = document.getElementById('login-section');

@@ -47,7 +47,7 @@ app.post('/api/login', async (req, res) => {
     });
 
     const row = result.rows[0];
-    if (!row || row[2] !== hashed) {
+    if (!row || row.password_hash !== hashed) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
@@ -62,6 +62,7 @@ app.post('/api/login', async (req, res) => {
       token,
       user: { username, role, spAccess: plan_id }
     });
+
   } catch (err) {
     console.error('[LOGIN ERROR]', err);
     res.status(500).json({ error: 'Internal server error during login.' });

@@ -24,53 +24,38 @@ const apiRequest = async (endpoint, method = 'GET', body = null) => {
 
     if (body) {
         options.body = JSON.stringify(body);
-        console.log('[CLIENT LOG] apiRequest: Request body:', body);
     }
-    
-    console.log('[CLIENT LOG] apiRequest: Fetch options prepared:', options);
 
     try {
-        console.log('[CLIENT LOG] apiRequest: Executing fetch...');
         const response = await fetch(url, options);
-        console.log('[CLIENT LOG] apiRequest: Fetch call completed. Response received.');
-        console.log(`[CLIENT LOG] apiRequest: Response Status: ${response.status} ${response.statusText}`);
+        console.log(`[CLIENT LOG] apiRequest: Fetch call completed. Response Status: ${response.status}`);
 
         if (!response.ok) {
-            console.error('[CLIENT LOG] apiRequest: Response was not OK. Attempting to read error body.');
-            const errorText = await response.text(); // Get raw text to see what server sent
+            const errorText = await response.text();
             console.error(`[CLIENT LOG] apiRequest: Raw error response from server:`, errorText);
             throw new Error(`Server responded with status ${response.status}`);
         }
         
-        console.log('[CLIENT LOG] apiRequest: Response is OK. Parsing JSON...');
         const data = await response.json();
-        console.log('[CLIENT LOG] apiRequest: JSON parsed successfully.');
         return data;
 
     } catch (error) {
-        console.error('[CLIENT LOG] apiRequest: A critical error occurred during the fetch process.');
-        console.error(`[CLIENT LOG] apiRequest: Error type: ${error.name}`);
-        console.error(`[CLIENT LOG] apiRequest: Error message: ${error.message}`);
-        console.error('[CLIENT LOG] apiRequest: Full error object:', error);
-        // Re-throw the error so the calling function can handle it
+        console.error(`[CLIENT LOG] apiRequest: A critical error occurred during the fetch process:`, error);
         throw error;
     }
 };
 
 // --- Main Application Logic ---
 const handleLogin = async (event) => {
-    console.log('[CLIENT LOG] handleLogin: Function started.');
     event.preventDefault();
     loginStatus.textContent = 'Logging in...';
 
     const username = document.getElementById('username').value.trim();
     const password = document.getElementById('password').value;
-    console.log(`[CLIENT LOG] handleLogin: Captured username: "${username}".`);
 
     try {
-        console.log('[CLIENT LOG] handleLogin: Calling apiRequest for /login.');
-        const result = await apiRequest('/login', 'POST', { username, password });
-        console.log('[CLIENT LOG] handleLogin: apiRequest returned successfully.', result);
+        // CORRECTED: Added /api/ to the endpoint path
+        const result = await apiRequest('/api/login', 'POST', { username, password });
 
         if (result.success && result.user) {
             sessionStorage.setItem('attendanceUser', JSON.stringify(result.user));
@@ -79,10 +64,8 @@ const handleLogin = async (event) => {
             throw new Error(result.error || 'Login failed due to unexpected server response.');
         }
     } catch (error) {
-        console.error('[CLIENT LOG] handleLogin: Login process failed.');
         loginStatus.textContent = `Login failed: ${error.message}`;
     }
-    console.log('[CLIENT LOG] handleLogin: Function finished.');
 };
 
 const handleLogout = () => {
@@ -95,7 +78,8 @@ const populateStrataPlans = async () => {
     strataPlanSelect.innerHTML = '<option value="">Loading plans...</option>';
 
     try {
-        const result = await apiRequest('/strata-plans');
+        // CORRECTED: Added /api/ to the endpoint path
+        const result = await apiRequest('/api/strata-plans');
         if (result.success && result.plans) {
             strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
             result.plans.forEach(plan => {

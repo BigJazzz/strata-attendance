@@ -5,8 +5,9 @@ const app = express();
 app.use(express.json());
 
 // --- Database Configuration ---
+// This version forces an HTTPS connection, which can be more reliable.
 const db = createClient({
-  url: process.env.sa_TURSO_DATABASE_URL,
+  syncUrl: process.env.sa_TURSO_DATABASE_URL, // Using syncUrl instead of url
   authToken: process.env.sa_TURSO_AUTH_TOKEN,
 });
 

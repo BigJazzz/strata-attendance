@@ -51,7 +51,10 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
 
-    const [id, , , role, plan_id] = row;
+    const id = row.id;
+    const role = row.role;
+    const plan_id = row.plan_id;
+
     const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({

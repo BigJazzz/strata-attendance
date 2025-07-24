@@ -1,6 +1,3 @@
-// --- Configuration ---
-const API_BASE_URL = 'https://strata-attendance.vercel.app';
-
 // --- DOM Elements ---
 const loginSection = document.getElementById('login-section');
 const mainAppSection = document.getElementById('main-app');
@@ -12,9 +9,7 @@ const strataPlanSelect = document.getElementById('strata-plan-select');
 
 // --- Helper for API calls ---
 const apiRequest = async (endpoint, method = 'GET', body = null) => {
-    const url = `${API_BASE_URL}${endpoint}`;
-    console.log(`[CLIENT LOG] apiRequest: Starting request. Method: ${method}, URL: ${url}`);
-
+    // No more API_BASE_URL needed!
     const options = {
         method,
         headers: {
@@ -26,23 +21,14 @@ const apiRequest = async (endpoint, method = 'GET', body = null) => {
         options.body = JSON.stringify(body);
     }
 
-    try {
-        const response = await fetch(url, options);
-        console.log(`[CLIENT LOG] apiRequest: Fetch call completed. Response Status: ${response.status}`);
+    const response = await fetch(endpoint, options);
 
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`[CLIENT LOG] apiRequest: Raw error response from server:`, errorText);
-            throw new Error(`Server responded with status ${response.status}`);
-        }
-        
-        const data = await response.json();
-        return data;
-
-    } catch (error) {
-        console.error(`[CLIENT LOG] apiRequest: A critical error occurred during the fetch process:`, error);
-        throw error;
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'An API error occurred.');
     }
+
+    return response.json();
 };
 
 // --- Main Application Logic ---
@@ -54,16 +40,16 @@ const handleLogin = async (event) => {
     const password = document.getElementById('password').value;
 
     try {
-        // CORRECTED: Added /api/ to the endpoint path
         const result = await apiRequest('/api/login', 'POST', { username, password });
 
         if (result.success && result.user) {
             sessionStorage.setItem('attendanceUser', JSON.stringify(result.user));
             showMainApp(result.user);
         } else {
-            throw new Error(result.error || 'Login failed due to unexpected server response.');
+            throw new Error(result.error || 'Login failed.');
         }
     } catch (error) {
+        console.error('Login failed:', error);
         loginStatus.textContent = `Login failed: ${error.message}`;
     }
 };
@@ -78,8 +64,8 @@ const populateStrataPlans = async () => {
     strataPlanSelect.innerHTML = '<option value="">Loading plans...</option>';
 
     try {
-        // CORRECTED: Added /api/ to the endpoint path
         const result = await apiRequest('/api/strata-plans');
+
         if (result.success && result.plans) {
             strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
             result.plans.forEach(plan => {
@@ -98,6 +84,7 @@ const populateStrataPlans = async () => {
     }
 };
 
+// --- UI Management ---
 const showMainApp = (user) => {
     loginSection.classList.add('hidden');
     mainAppSection.classList.remove('hidden');
@@ -112,6 +99,7 @@ const showLogin = () => {
     loginForm.reset();
 };
 
+// --- Initial Load ---
 document.addEventListener('DOMContentLoaded', () => {
     loginForm.addEventListener('submit', handleLogin);
     logoutBtn.addEventListener('click', handleLogout);

@@ -1,7 +1,7 @@
 {
-  "name": "strata-backend",
+  "name": "strata-attendance-fullstack",
   "version": "1.0.0",
-  "description": "Backend API for Strata Attendance App",
+  "description": "Full-stack Strata Attendance App",
   "main": "api/index.js",
   "type": "module",
   "scripts": {
@@ -9,7 +9,6 @@
   },
   "dependencies": {
     "@libsql/client": "^0.6.0",
-    "cors": "^2.8.5",
     "express": "^4.19.2"
   },
   "engines": {

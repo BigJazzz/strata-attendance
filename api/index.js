@@ -1,23 +1,17 @@
-// api/index.js
 import express from 'express';
-import cors from 'cors';
 import { createClient } from '@libsql/client';
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
 // --- Database Configuration ---
-// This securely reads your credentials from Vercel's environment variables
 const db = createClient({
   url: process.env.TURSO_DATABASE_URL,
   authToken: process.env.TURSO_AUTH_TOKEN,
 });
 
 // --- API Endpoints ---
-
-// Handles user login
-app.post('/login', async (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -35,9 +29,6 @@ app.post('/login', async (req, res) => {
     }
     
     const user = result.rows[0];
-    // NOTE: For a real application, you would add password hash comparison here
-    // using a library like bcrypt.
-    
     res.json({ success: true, user: { username: user.username, role: user.role } });
 
   } catch (error) {
@@ -46,12 +37,10 @@ app.post('/login', async (req, res) => {
   }
 });
 
-// Fetches the list of strata plans
-app.get('/strata-plans', async (req, res) => {
+app.get('/api/strata-plans', async (req, res) => {
   try {
     const result = await db.execute('SELECT * FROM strata_plans ORDER BY id');
     
-    // Map the array-based rows from Turso to a more usable array of objects
     const plans = result.rows.map(row => ({
       sp: row[0],
       suburb: row[1]
@@ -64,7 +53,6 @@ app.get('/strata-plans', async (req, res) => {
     res.status(500).json({ error: 'An internal server error occurred.' });
   }
 });
-
 
 // Export the app object for Vercel's serverless environment
 export default app;

@@ -5,14 +5,41 @@ const app = express();
 app.use(express.json());
 
 // --- Database Configuration ---
-// This version forces an HTTPS connection, which can be more reliable.
-const db = createClient({
-  syncUrl: process.env.sa_TURSO_DATABASE_URL, // Using syncUrl instead of url
-  authToken: process.env.sa_TURSO_AUTH_TOKEN,
-});
+let db;
+const dbUrl = process.env.sa_TURSO_DATABASE_URL;
+const dbToken = process.env.sa_TURSO_AUTH_TOKEN;
+
+// Add detailed logging to check if the environment variables are loaded
+console.log(`[SERVER LOG] Checking Environment Variables...`);
+console.log(`[SERVER LOG] sa_TURSO_DATABASE_URL is: ${dbUrl ? 'found' : 'MISSING'}`);
+console.log(`[SERVER LOG] sa_TURSO_AUTH_TOKEN is: ${dbToken ? 'found' : 'MISSING'}`);
+
+// Only attempt to create the client if both variables exist
+if (dbUrl && dbToken) {
+  try {
+    // Reverting to the standard 'url' property as the issue is variable loading
+    db = createClient({
+      url: dbUrl,
+      authToken: dbToken,
+    });
+    console.log("[SERVER LOG] Successfully created Turso DB client.");
+  } catch (e) {
+    console.error("[SERVER LOG] Failed to create Turso DB client:", e);
+    db = null; // Ensure db is null if creation fails
+  }
+} else {
+    console.error("[SERVER LOG] CRITICAL: Database environment variables are not set.");
+    db = null;
+}
+
 
 // --- API Endpoints ---
 app.post('/api/login', async (req, res) => {
+  // Check if the database connection was successful
+  if (!db) {
+    return res.status(500).json({ error: 'Server is not configured to connect to the database.' });
+  }
+
   const { username, password } = req.body;
 
   if (!username || !password) {
@@ -39,6 +66,10 @@ app.post('/api/login', async (req, res) => {
 });
 
 app.get('/api/strata-plans', async (req, res) => {
+  if (!db) {
+    return res.status(500).json({ error: 'Server is not configured to connect to the database.' });
+  }
+  
   try {
     const result = await db.execute('SELECT * FROM strata_plans ORDER BY id');
     

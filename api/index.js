@@ -6,8 +6,8 @@ app.use(express.json());
 
 // --- Database Configuration ---
 const db = createClient({
-  url: process.env.TURSO_DATABASE_URL,
-  authToken: process.env.TURSO_AUTH_TOKEN,
+  url: process.env.sa_TURSO_DATABASE_URL,
+  authToken: process.env.sa_TURSO_AUTH_TOKEN,
 });
 
 // --- API Endpoints ---

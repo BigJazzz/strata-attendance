@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.6.0",
+    "cors": "^2.8.5",
     "express": "^4.19.2"
   },
   "engines": {

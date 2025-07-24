@@ -1,218 +1,267 @@
-// Import functions
-import {
-    postToServer,
-    showModal,
-    showToast
-} from './utils.js';
+// auth.js
 
-// --- Authentication & Session Logic ---
+import { apiGet, apiPost } from './utils.js';
+import { showModal, showToast } from './utils.js';
+import { API_BASE } from './config.js';
+
+// --- Login & Logout ---
+
+// Handles the login form submission
 export const handleLogin = async (event) => {
-    if(event) event.preventDefault();
-    const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('password').value;
-    const loginStatus = document.getElementById('login-status');
-    
-    if (!username || !password) {
-        loginStatus.textContent = 'Username and password are required.';
-        loginStatus.style.color = 'red';
-        return null;
-    }
-    loginStatus.textContent = 'Logging in...';
+  if (event) event.preventDefault();
 
-    try {
-        const result = await postToServer({ action: 'loginUser', username, password });
-        
-        if (result.success && result.token) {
-            // Store token, user, and the new script version
-            document.cookie = `authToken=${result.token};max-age=604800;path=/;SameSite=Lax`;
-            sessionStorage.setItem('attendanceUser', JSON.stringify(result.user));
-            
-            // Store the script version from the response
-            if (result.scriptVersion) {
-                sessionStorage.setItem('scriptVersion', result.scriptVersion);
-            }
-            
-            // Return the entire successful result object
-            return result; 
-        } else {
-            throw new Error(result.error || 'Invalid username or password.');
-        }
-    } catch (error) {
-        loginStatus.textContent = `Login failed: ${error.message}`;
-        loginStatus.style.color = 'red';
-        return null;
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const loginStatus = document.getElementById('login-status');
+
+  if (!username || !password) {
+    loginStatus.textContent = 'Username and password are required.';
+    loginStatus.style.color = 'red';
+    return null;
+  }
+
+  loginStatus.textContent = 'Logging in…';
+
+  try {
+    const data = await apiPost('/login', { username, password });
+    if (data.success && data.token) {
+      // Persist token and user info
+      document.cookie = `authToken=${data.token};max-age=604800;path=/;SameSite=Lax`;
+      sessionStorage.setItem('attendanceUser', JSON.stringify(data.user));
+
+      // Optional: store script/app version
+      if (data.scriptVersion) {
+        sessionStorage.setItem('scriptVersion', data.scriptVersion);
+      }
+
+      return data;
+    } else {
+      throw new Error(data.error || 'Invalid username or password.');
     }
+  } catch (err) {
+    loginStatus.textContent = `Login failed: ${err.message}`;
+    loginStatus.style.color = 'red';
+    return null;
+  }
 };
 
+// Clears session and reloads the page
 export const handleLogout = () => {
-    sessionStorage.removeItem('attendanceUser');
-    // Expire the cookies by setting max-age to 0
-    document.cookie = 'authToken=; max-age=0; path=/;';
-    document.cookie = 'username=; max-age=0; path=/;';
-    location.reload();
+  sessionStorage.removeItem('attendanceUser');
+  document.cookie = 'authToken=; max-age=0; path=/;';
+  location.reload();
 };
-// --- User Management (Admin) ---
+
+
+// --- User Management ---
+
+// Fetches and renders the user list (Admin only)
 export const loadUsers = async () => {
-    try {
-        const sessionUser = JSON.parse(sessionStorage.getItem('attendanceUser'));
-        if (!sessionUser) return;
+  try {
+    const data = await apiGet('/users');
+    if (!data.success) throw new Error(data.error || 'Failed to load users.');
 
-        const result = await postToServer({ action: 'getUsers' });
-        if (!result.success) throw new Error(result.error);
-        
-        const userListBody = document.getElementById('user-list-body');
-        userListBody.innerHTML = '';
-        result.users.forEach(user => {
-            const tr = document.createElement('tr');
-            const isCurrentUser = user.username === sessionUser.username;
-            
-            // Create the dropdown menu for actions
-            let actionsHtml = `
-                <select class="user-actions-select" data-username="${user.username}">
-                    <option value="">Select Action</option>
-                    <option value="change_sp">Change SP Access</option>
-                    <option value="reset_password">Reset Password</option>
-            `;
-            if (!isCurrentUser) {
-                actionsHtml += `<option value="remove">Remove User</option>`;
-            }
-            actionsHtml += `</select>`;
-            
-            tr.innerHTML = `
-                <td>${user.username}</td>
-                <td>${user.role}</td>
-                <td>${user.spAccess || 'All'}</td>
-                <td>${actionsHtml}</td>
-            `;
-            userListBody.appendChild(tr);
-        });
-    } catch (error) {
-        console.error('Failed to load users:', error);
-        if (error.message.includes("Authentication failed")) handleLogout();
-    }
+    const sessionUser = JSON.parse(sessionStorage.getItem('attendanceUser'));
+    const tbody = document.getElementById('user-list-body');
+    tbody.innerHTML = '';
+
+    data.users.forEach(user => {
+      const isSelf = user.username === sessionUser.username;
+      let actions = `
+        <select class="user-actions-select" data-username="${user.username}">
+          <option value="">Select Action</option>
+          <option value="change_sp">Change SP Access</option>
+          <option value="reset_password">Reset Password</option>
+      `;
+      if (!isSelf) actions += `<option value="remove">Remove User</option>`;
+      actions += `</select>`;
+
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${user.username}</td>
+        <td>${user.role}</td>
+        <td>${user.spAccess || 'All'}</td>
+        <td>${actions}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  } catch (err) {
+    console.error('loadUsers error:', err);
+    if (err.message.includes('Authentication failed')) handleLogout();
+  }
 };
 
+// Prompts for new user details and creates the user
 export const handleAddUser = async () => {
-    const usernameRes = await showModal("Enter new user's username:", { showInput: true, confirmText: 'Next' });
-    if (!usernameRes.confirmed || !usernameRes.value) return;
-    
-    const passwordRes = await showModal("Enter new user's password:", { showInput: true, inputType: 'password', confirmText: 'Next' });
-    if (!passwordRes.confirmed || !passwordRes.value) return;
+  const uRes = await showModal("Enter new user's username:", { showInput: true, confirmText: 'Next' });
+  if (!uRes.confirmed || !uRes.value) return;
 
-    const roleRes = await showModal("Enter role (Admin or User):", { showInput: true, confirmText: 'Next' });
-    if (!roleRes.confirmed || !roleRes.value) return;
+  const pRes = await showModal("Enter new user's password:", { showInput: true, inputType: 'password', confirmText: 'Next' });
+  if (!pRes.confirmed || !pRes.value) return;
 
-    const role = roleRes.value.trim();
-    if (role !== 'Admin' && role !== 'User') {
-        showToast('Invalid role. Must be "Admin" or "User".', 'error');
-        return;
+  const rRes = await showModal("Enter role (Admin or User):", { showInput: true, confirmText: 'Next' });
+  if (!rRes.confirmed || !rRes.value) return;
+
+  const role = rRes.value.trim();
+  if (role !== 'Admin' && role !== 'User') {
+    showToast('Role must be "Admin" or "User".', 'error');
+    return;
+  }
+
+  let spAccess = '';
+  if (role === 'User') {
+    const spRes = await showModal("Enter SP Access number:", { showInput: true, confirmText: 'Add User' });
+    if (!spRes.confirmed || !spRes.value) {
+      showToast('SP Access required for User role.', 'error');
+      return;
     }
+    spAccess = spRes.value;
+  }
 
-    let spAccess = '';
-    if (role === 'User') {
-        const spAccessRes = await showModal("Enter SP Access number for this user:", { showInput: true, confirmText: 'Add User' });
-        if (!spAccessRes.confirmed || !spAccessRes.value) {
-            showToast('SP Access is required for the User role.', 'error');
-            return;
-        }
-        spAccess = spAccessRes.value;
+  try {
+    const data = await apiPost('/users', {
+      username: uRes.value,
+      password: pRes.value,
+      role,
+      spAccess
+    });
+    if (data.success) {
+      showToast('User added successfully.', 'success');
+      loadUsers();
+    } else {
+      throw new Error(data.error);
     }
-
-    try {
-        const result = await postToServer({ 
-            action: 'addUser', 
-            username: usernameRes.value, 
-            password: passwordRes.value, 
-            role,
-            spAccess
-        });
-        if (result.success) {
-            showToast('User added successfully.', 'success');
-            loadUsers();
-        } else {
-            throw new Error(result.error);
-        }
-    } catch (error) {
-        showToast(`Failed to add user: ${error.message}`, 'error');
-        if (error.message.includes("Authentication failed")) handleLogout();
-    }
+  } catch (err) {
+    showToast(`Failed to add user: ${err.message}`, 'error');
+    if (err.message.includes('Authentication failed')) handleLogout();
+  }
 };
 
+// Deletes a user when “Remove User” is selected
 export const handleRemoveUser = async (e) => {
-    if (!e.target.matches('.delete-btn[data-username]')) return;
-    const username = e.target.dataset.username;
-    
-    const confirmRes = await showModal(`Are you sure you want to remove user "${username}"?`, { confirmText: 'Yes, Remove' });
-    if (!confirmRes.confirmed) return;
+  if (!e.target.matches('.user-actions-select')) return;
+  if (e.target.value !== 'remove') {
+    e.target.value = '';
+    return;
+  }
 
-    try {
-        const result = await postToServer({ action: 'removeUser', username });
-        if (result.success) {
-            showToast('User removed successfully.', 'success'); // Use showToast
-            loadUsers();
-        } else {
-            throw new Error(result.error);
-        }
-    } catch (error) {
-        showToast(`Failed to remove user: ${error.message}`, 'error'); // Use showToast
-        if (error.message.includes("Authentication failed")) handleLogout();
+  const username = e.target.dataset.username;
+  const confirm = await showModal(`Remove user "${username}"?`, { confirmText: 'Yes, Remove' });
+  if (!confirm.confirmed) {
+    e.target.value = '';
+    return;
+  }
+
+  try {
+    const token = document.cookie.split('; ').find(r => r.startsWith('authToken=')).split('=')[1];
+    const res = await fetch(`${API_BASE}/users/${username}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast('User removed successfully.', 'success');
+      loadUsers();
+    } else {
+      throw new Error(data.error);
     }
+  } catch (err) {
+    showToast(`Failed to remove user: ${err.message}`, 'error');
+    if (err.message.includes('Authentication failed')) handleLogout();
+  } finally {
+    e.target.value = '';
+  }
 };
 
-// --- User Management (Self) ---
+// --- Password & Access Updates ---
+
+// Change the logged-in user's password
 export const handleChangePassword = async () => {
-    const passwordRes = await showModal("Enter your new password:", { showInput: true, inputType: 'password', confirmText: 'Change Password' });
-    if (!passwordRes.confirmed) return;
-    
-    if (!passwordRes.value) {
-        showToast('Password cannot be blank.', 'error');
-        return;
-    }
+  const pRes = await showModal("Enter your new password:", {
+    showInput: true, inputType: 'password', confirmText: 'Change Password'
+  });
+  if (!pRes.confirmed) return;
+  if (!pRes.value) {
+    showToast('Password cannot be blank.', 'error');
+    return;
+  }
 
-    try {
-        const result = await postToServer({ action: 'changePassword', newPassword: passwordRes.value });
-        if (result.success) {
-            showToast('Password changed successfully.', 'success'); // Use showToast
-        } else {
-            throw new Error(result.error);
-        }
-    } catch (error) {
-        showToast(`Failed to change password: ${error.message}`, 'error'); // Use showToast
-        if (error.message.includes("Authentication failed")) handleLogout();
+  try {
+    const sessionUser = JSON.parse(sessionStorage.getItem('attendanceUser'));
+    const token = document.cookie.split('; ').find(r => r.startsWith('authToken=')).split('=')[1];
+    const res = await fetch(`${API_BASE}/users/${sessionUser.username}/password`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ newPassword: pRes.value })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast('Password changed successfully.', 'success');
+    } else {
+      throw new Error(data.error);
     }
+  } catch (err) {
+    showToast(`Failed to change password: ${err.message}`, 'error');
+    if (err.message.includes('Authentication failed')) handleLogout();
+  }
 };
 
+// Admin: Change another user’s strata-plan access
 export const handleChangeSpAccess = async (username) => {
-    const spAccessRes = await showModal(`Enter new SP Access for ${username} (or leave blank for all):`, { showInput: true, confirmText: 'Update' });
-    if (!spAccessRes.confirmed) return;
+  const spRes = await showModal(`Enter new SP Access for ${username} (leave blank for All):`, {
+    showInput: true, confirmText: 'Update'
+  });
+  if (!spRes.confirmed) return;
 
-    try {
-        const result = await postToServer({ action: 'changeSpAccess', username, spAccess: spAccessRes.value });
-        if (result.success) {
-            showToast('SP Access updated successfully.', 'success');
-            loadUsers();
-        } else {
-            throw new Error(result.error);
-        }
-    } catch (error) {
-        showToast(`Failed to update SP Access: ${error.message}`, 'error');
-        if (error.message.includes("Authentication failed")) handleLogout();
+  try {
+    const token = document.cookie.split('; ').find(r => r.startsWith('authToken=')).split('=')[1];
+    const res = await fetch(`${API_BASE}/users/${username}/plan`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({ plan_id: spRes.value || null })
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast('SP Access updated successfully.', 'success');
+      loadUsers();
+    } else {
+      throw new Error(data.error);
     }
+  } catch (err) {
+    showToast(`Failed to update SP Access: ${err.message}`, 'error');
+    if (err.message.includes('Authentication failed')) handleLogout();
+  }
 };
 
+// Admin: Reset a user’s password to a default or random one
 export const handleResetPassword = async (username) => {
-    const confirmRes = await showModal(`Are you sure you want to reset the password for ${username}?`, { confirmText: 'Yes, Reset' });
-    if (!confirmRes.confirmed) return;
+  const confirm = await showModal(`Reset password for ${username}?`, { confirmText: 'Yes, Reset' });
+  if (!confirm.confirmed) return;
 
-    try {
-        const result = await postToServer({ action: 'resetPassword', username });
-        if (result.success) {
-            showToast('Password reset successfully.', 'success');
-        } else {
-            throw new Error(result.error);
-        }
-    } catch (error) {
-        showToast(`Failed to reset password: ${error.message}`, 'error');
-        if (error.message.includes("Authentication failed")) handleLogout();
+  try {
+    const token = document.cookie.split('; ').find(r => r.startsWith('authToken=')).split('=')[1];
+    const res = await fetch(`${API_BASE}/users/${username}/reset-password`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast('Password reset successfully.', 'success');
+    } else {
+      throw new Error(data.error);
     }
+  } catch (err) {
+    showToast(`Failed to reset password: ${err.message}`, 'error');
+    if (err.message.includes('Authentication failed')) handleLogout();
+  }
 };

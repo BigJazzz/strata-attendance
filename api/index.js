@@ -28,12 +28,10 @@ function authenticate(req, res, next) {
   }
 }
 
-// --- SHA-256 Password Hashing ---
 function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
 }
 
-// --- Login Endpoint (SHA-256 version) ---
 app.post('/api/login', async (req, res) => {
   try {
     const db = getDb();
@@ -66,6 +64,8 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ error: 'Internal server error during login.' });
   }
 });
+
+
 
 // --- Strata Plans Endpoint ---
 app.get('/api/strata-plans', authenticate, async (req, res) => {

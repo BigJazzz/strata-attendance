@@ -1,8 +1,5 @@
-import { apiGet, apiPost } from './utils.js';
-import { showModal, showToast } from './utils.js';
+import { apiGet, apiPost, showToast, showModal } from './utils.js';
 import { API_BASE } from './config.js';
-
-// --- Helpers ---
 
 function getAuthToken() {
   return document.cookie
@@ -18,8 +15,6 @@ function authHeaders(json = true) {
     ...(token && { Authorization: `Bearer ${token}` })
   };
 }
-
-// --- Login & Logout ---
 
 export async function handleLogin(event) {
   if (event) event.preventDefault();
@@ -60,7 +55,37 @@ export function handleLogout() {
   location.reload();
 }
 
-// --- User Management (Admin) ---
+export async function handleImportCsv(file) {
+    const importStatus = document.getElementById('import-status');
+    if (!file) {
+        importStatus.textContent = 'Please select a file first.';
+        importStatus.style.color = 'red';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+        const csvData = event.target.result;
+        importStatus.textContent = 'Importing... This may take a moment.';
+        importStatus.style.color = 'black';
+
+        try {
+            const data = await apiPost('/import-data', { csvData });
+            if (data.success) {
+                importStatus.textContent = data.message;
+                importStatus.style.color = 'green';
+                showToast('Import complete! The page will now reload.', 'success', 4000);
+                setTimeout(() => location.reload(), 4000);
+            } else {
+                throw new Error(data.error);
+            }
+        } catch (err) {
+            importStatus.textContent = `Import failed: ${err.message}`;
+            importStatus.style.color = 'red';
+        }
+    };
+    reader.readAsText(file);
+}
 
 export async function loadUsers() {
   try {
@@ -167,8 +192,6 @@ export async function handleRemoveUser(e) {
     e.target.value = '';
   }
 }
-
-// --- Password & Access Updates ---
 
 export async function handleChangePassword() {
   const pRes = await showModal("Enter your new password:", {

@@ -121,6 +121,16 @@
                     <div id="admin-panel" class="hidden">
                         <hr style="margin: 2rem 0;">
                         <h3>Admin Panel</h3>
+                        
+                        <div class="import-section form-group">
+                            <h4>Import Strata Data from CSV</h4>
+                            <p>Select a CSV file with the required columns (A, C, D, F, G, X).</p>
+                            <input type="file" id="csv-file-input" accept=".csv" style="margin-top: 0.5rem;">
+                            <button type="button" id="import-csv-btn" style="margin-top: 1rem;">Import Data</button>
+                            <p id="import-status" style="margin-top: 1rem;"></p>
+                        </div>
+                        <hr style="margin: 2rem 0;">
+
                         <table class="attendee-table">
                             <thead>
                                 <tr>

@@ -33,6 +33,7 @@ const checkInTabBtn = document.getElementById('check-in-tab-btn');
 // Using a simple object for app state can be very effective.
 let currentStrataPlan = null;
 let strataPlanCache = {};
+let isAppInitialized = false; // Flag to prevent multiple initializations
 
 // --- Core App Logic ---
 
@@ -156,7 +157,7 @@ function setupAdminEventListeners() {
     const csvFileInput = document.getElementById('csv-file-input');
     const csvDropZone = document.getElementById('csv-drop-zone');
     const collapsibleToggle = document.querySelector('.collapsible-toggle');
-    const adminTabBtn = document.getElementById('admin-tab-btn'); // Get admin button here
+    const adminTabBtn = document.getElementById('admin-tab-btn');
 
     // Listener for the admin tab itself
     if (adminTabBtn) {
@@ -165,6 +166,10 @@ function setupAdminEventListeners() {
             loadUsers(); // Load user list when tab is opened
         });
     }
+    
+    // Listeners for other admin-only buttons
+    addUserBtn.addEventListener('click', handleAddUser);
+    clearCacheBtn.addEventListener('click', handleClearCache);
 
     if (importCsvBtn) {
         importCsvBtn.addEventListener('click', () => {
@@ -220,8 +225,23 @@ function setupAdminEventListeners() {
  * main app, and fetches initial data like the list of strata plans.
  */
 async function initializeApp() {
+    // Prevent this function from running more than once
+    if (isAppInitialized) return;
+    isAppInitialized = true;
+
     loginSection.classList.add('hidden');
     mainApp.classList.remove('hidden');
+
+    // --- Set up event listeners for the main application elements ---
+    logoutBtn.addEventListener('click', handleLogout);
+    strataPlanSelect.addEventListener('change', handlePlanChange);
+    lotNumberInput.addEventListener('input', (e) => {
+        debouncedRenderOwners(e.target.value.trim());
+    });
+    checkInTabBtn.addEventListener('click', (e) => openTab(e, 'check-in-tab'));
+    changePasswordBtn.addEventListener('click', handleChangePassword);
+    userListBody.addEventListener('change', handleUserActions);
+
 
     const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
     if (user) {
@@ -309,6 +329,7 @@ function handleUserActions(e) {
  */
 document.addEventListener('DOMContentLoaded', () => {
   // --- Always-Present Element Listeners ---
+  // Only the login form listener is needed here, as it's always visible on page load.
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const loginResult = await handleLogin(e);
@@ -317,31 +338,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
   
-  logoutBtn.addEventListener('click', handleLogout);
-  strataPlanSelect.addEventListener('change', handlePlanChange);
-  lotNumberInput.addEventListener('input', (e) => {
-      debouncedRenderOwners(e.target.value.trim());
-  });
-  
-  checkInTabBtn.addEventListener('click', (e) => openTab(e, 'check-in-tab'));
-  
-  // --- Admin-Only or Dynamic Element Listeners ---
-  // These are for elements that might not be visible initially.
-  changePasswordBtn.addEventListener('click', handleChangePassword);
-  addUserBtn.addEventListener('click', handleAddUser);
-  clearCacheBtn.addEventListener('click', handleClearCache);
-  
-  // Use event delegation for the user list, as its content is dynamic.
-  userListBody.addEventListener('change', handleUserActions);
-  
   // --- Auto-Login Check ---
   // Check for an existing auth token in cookies to automatically log the user in.
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {
       initializeApp();
   } else {
-      // If no token, make sure the check-in tab is active by default.
-      checkInTabBtn.classList.add('active');
-      document.getElementById('check-in-tab').style.display = 'block';
+      // If no token, the user sees the login screen by default.
+      // No extra action needed.
   }
 });

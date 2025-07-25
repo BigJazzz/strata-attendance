@@ -38,14 +38,16 @@ let strataPlanCache = {};
 // --- Core App Logic ---
 async function handlePlanChange(event) {
     const spNumber = event.target.value;
+    
+    // Reset the UI as soon as the plan changes
+    resetUiOnPlanChange();
+
     if (!spNumber) {
-        resetUiOnPlanChange();
         return;
     }
     
     currentStrataPlan = spNumber;
     document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
-    lotNumberInput.disabled = true;
     
     try {
         const cachedData = localStorage.getItem(`strata_${spNumber}`);
@@ -68,7 +70,7 @@ async function handlePlanChange(event) {
         }
         
         lotNumberInput.disabled = false;
-        lotNumberInput.focus(); // Set focus to the lot number input
+        lotNumberInput.focus();
         showToast(`Loaded data for SP ${spNumber}`, 'success');
         
     } catch (err) {
@@ -78,12 +80,11 @@ async function handlePlanChange(event) {
     }
 }
 
-// Debounced function to render owners as user types
 const debouncedRenderOwners = debounce((lotValue) => {
     if (lotValue && strataPlanCache) {
         renderOwnerCheckboxes(lotValue, strataPlanCache);
     }
-}, 300); // 300ms delay
+}, 300);
 
 
 // --- UI & App Initialization ---
@@ -178,7 +179,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   strataPlanSelect.addEventListener('change', handlePlanChange);
   
-  // Listen for input in the lot number field
   lotNumberInput.addEventListener('input', (e) => {
       debouncedRenderOwners(e.target.value.trim());
   });

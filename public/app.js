@@ -13,22 +13,6 @@ import {
 import { showModal, clearStrataCache, apiGet, apiPost, showToast, debounce, showMeetingModal } from './utils.js';
 import { renderStrataPlans, resetUiOnPlanChange, renderOwnerCheckboxes } from './ui.js';
 
-// --- DOM Elements ---
-// It's good practice to declare all DOM element variables at the top.
-const loginForm = document.getElementById('login-form');
-const logoutBtn = document.getElementById('logout-btn');
-const changePasswordBtn = document.getElementById('change-password-btn');
-const addUserBtn = document.getElementById('add-user-btn');
-const clearCacheBtn = document.getElementById('clear-cache-btn');
-const userListBody = document.getElementById('user-list-body');
-const loginSection = document.getElementById('login-section');
-const mainApp = document.getElementById('main-app');
-const userDisplay = document.getElementById('user-display');
-const adminPanel = document.getElementById('admin-panel');
-const strataPlanSelect = document.getElementById('strata-plan-select');
-const lotNumberInput = document.getElementById('lot-number');
-const checkInTabBtn = document.getElementById('check-in-tab-btn');
-
 // --- App State ---
 // Using a simple object for app state can be very effective.
 let currentStrataPlan = null;
@@ -45,6 +29,9 @@ let isAppInitialized = false; // Flag to prevent multiple initializations
  */
 async function handlePlanChange(event) {
     const spNumber = event.target.value;
+    const strataPlanSelect = document.getElementById('strata-plan-select');
+    const lotNumberInput = document.getElementById('lot-number');
+    
     resetUiOnPlanChange(); // Clear the UI first
 
     if (!spNumber) {
@@ -153,11 +140,14 @@ function openTab(evt, tabName) {
  * This should only be called after confirming the user is an admin.
  */
 function setupAdminEventListeners() {
+    // Get admin panel DOM elements now that they are guaranteed to be visible
     const importCsvBtn = document.getElementById('import-csv-btn');
     const csvFileInput = document.getElementById('csv-file-input');
     const csvDropZone = document.getElementById('csv-drop-zone');
     const collapsibleToggle = document.querySelector('.collapsible-toggle');
     const adminTabBtn = document.getElementById('admin-tab-btn');
+    const addUserBtn = document.getElementById('add-user-btn');
+    const clearCacheBtn = document.getElementById('clear-cache-btn');
 
     // Listener for the admin tab itself
     if (adminTabBtn) {
@@ -228,6 +218,18 @@ async function initializeApp() {
     // Prevent this function from running more than once
     if (isAppInitialized) return;
     isAppInitialized = true;
+
+    // Get main app DOM elements now that they are guaranteed to be visible
+    const loginSection = document.getElementById('login-section');
+    const mainApp = document.getElementById('main-app');
+    const logoutBtn = document.getElementById('logout-btn');
+    const strataPlanSelect = document.getElementById('strata-plan-select');
+    const lotNumberInput = document.getElementById('lot-number');
+    const checkInTabBtn = document.getElementById('check-in-tab-btn');
+    const changePasswordBtn = document.getElementById('change-password-btn');
+    const userListBody = document.getElementById('user-list-body');
+    const userDisplay = document.getElementById('user-display');
+    const adminPanel = document.getElementById('admin-panel');
 
     loginSection.classList.add('hidden');
     mainApp.classList.remove('hidden');
@@ -328,8 +330,10 @@ function handleUserActions(e) {
  * primary event listeners for the application.
  */
 document.addEventListener('DOMContentLoaded', () => {
-  // --- Always-Present Element Listeners ---
-  // Only the login form listener is needed here, as it's always visible on page load.
+  // Get the single element that is always present on page load.
+  const loginForm = document.getElementById('login-form');
+
+  // Only the login form listener is needed here.
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const loginResult = await handleLogin(e);

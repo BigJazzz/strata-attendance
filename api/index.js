@@ -46,6 +46,63 @@ function isAdmin(req, res, next) {
     else return res.status(403).json({ error: 'Forbidden: Admin access required.' });
 }
 
+// --- Corrected Strata Plans Endpoint ---
+app.get('/api/strata-plans', authenticate, async (req, res) => {
+  try {
+    const db = getDb();
+    const { role, plan_id } = req.user;
+
+    let result;
+    if (role === 'Admin') {
+      // Admins get all plans
+      result = await db.execute('SELECT sp_number, suburb FROM strata_plans ORDER BY sp_number');
+    } else {
+      // Users only get their assigned plan
+      result = await db.execute({
+          sql: 'SELECT sp_number, suburb FROM strata_plans WHERE id = ?',
+          args: [plan_id],
+      });
+    }
+
+    const plans = rowsToObjects(result);
+    res.json({ success: true, plans });
+  } catch (err)_ {
+    console.error('[STRATA PLANS ERROR]', err);
+    res.status(500).json({ error: `Could not load strata plans: ${err.message}` });
+  }
+});
+
+
+// --- Get Owners Endpoint ---
+app.get('/api/strata-plans/:planId/owners', authenticate, async (req, res) => {
+    try {
+        const { planId } = req.params;
+        const db = getDb();
+
+        const planResult = await db.execute({
+            sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
+            args: [planId],
+        });
+
+        if (planResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Strata plan not found.' });
+        }
+        const internalPlanId = planResult.rows[0][0];
+
+        const ownersResult = await db.execute({
+            sql: 'SELECT lot_number, unit_number, name_on_title, main_contact_name FROM strata_owners WHERE plan_id = ?',
+            args: [internalPlanId],
+        });
+
+        const owners = rowsToObjects(ownersResult);
+        res.json({ success: true, owners });
+    } catch (err) {
+        console.error('[GET OWNERS ERROR]', err);
+        res.status(500).json({ error: 'Failed to fetch owner data.' });
+    }
+});
+
+
 // --- CSV IMPORT ENDPOINT ---
 app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
     const { csvData } = req.body;
@@ -69,8 +126,8 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
             const sp_number = row[0];
             const lot_number = row[2];
             const unit_number = row[3];
-            const name_on_title = row[5] || '';         // Column F
-            const main_contact_name = row[6] || '';     // Column G
+            const name_on_title = row[5] || '';
+            const main_contact_name = row[6] || '';
             const levy_entitlement = parseInt(row[23], 10) || 0;
 
             if (!sp_number || !lot_number) continue;
@@ -91,7 +148,6 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
                 plan_id = newPlanResult.rows[0][0];
             }
 
-            // Corrected SQL to match the final schema
             await transaction.execute({
                 sql: `
                     INSERT INTO strata_owners (plan_id, lot_number, unit_number, name_on_title, main_contact_name, levy_entitlement)
@@ -142,11 +198,13 @@ app.post('/api/login', async (req, res) => {
     }
     
     const { id, role, plan_id } = userObject;
+    // Important: Sign the plan_id into the token
     const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       success: true,
       token,
+      // Also return plan_id (as spAccess) to the frontend
       user: { username, role, spAccess: plan_id }
     });
 
@@ -156,18 +214,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-app.get('/api/strata-plans', authenticate, async (req, res) => {
-  try {
-    const db = getDb();
-    const result = await db.execute('SELECT sp_number, suburb FROM strata_plans ORDER BY sp_number');
-    const plans = rowsToObjects(result);
-    res.json({ success: true, plans });
-  } catch (err) {
-    console.error('[STRATA PLANS ERROR]', err);
-    res.status(500).json({ error: `Could not load strata plans: ${err.message}` });
-  }
-});
-
+// The rest of the file remains the same...
 app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const db = getDb();

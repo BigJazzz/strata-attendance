@@ -10,8 +10,8 @@ import {
   handleImportCsv
 } from './auth.js';
 
-import { showModal, clearStrataCache, apiGet } from './utils.js';
-import { renderStrataPlans } from './ui.js';
+import { showModal, clearStrataCache, apiGet, showToast } from './utils.js';
+import { renderStrataPlans, resetUiOnPlanChange } from './ui.js';
 
 // --- DOM Elements ---
 const loginForm = document.getElementById('login-form');
@@ -27,10 +27,54 @@ const userDisplay = document.getElementById('user-display');
 const adminPanel = document.getElementById('admin-panel');
 const importCsvBtn = document.getElementById('import-csv-btn');
 const csvFileInput = document.getElementById('csv-file-input');
-const csvDropZone = document.getElementById('csv-drop-zone'); // <-- New drop zone element
+const csvDropZone = document.getElementById('csv-drop-zone');
+const strataPlanSelect = document.getElementById('strata-plan-select');
+const lotNumberInput = document.getElementById('lot-number');
+
+// --- App State ---
+let currentStrataPlan = null;
+let strataPlanCache = {};
+
+// --- Core App Logic ---
+async function handlePlanChange(event) {
+    const spNumber = event.target.value;
+    if (!spNumber) {
+        resetUiOnPlanChange();
+        return;
+    }
+    
+    currentStrataPlan = spNumber;
+    document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
+    lotNumberInput.disabled = true;
+    
+    try {
+        const cachedData = localStorage.getItem(`strata_${spNumber}`);
+        if (cachedData) {
+            strataPlanCache = JSON.parse(cachedData);
+        } else {
+            const data = await apiGet(`/strata-plans/${spNumber}/owners`);
+            if (!data.success) throw new Error(data.error);
+
+            strataPlanCache = data.owners.reduce((acc, owner) => {
+                acc[owner.lot_number] = [owner.main_contact_name, owner.name_on_title, owner.unit_number];
+                return acc;
+            }, {});
+            
+            localStorage.setItem(`strata_${spNumber}`, JSON.stringify(strataPlanCache));
+        }
+        
+        lotNumberInput.disabled = false;
+        showToast(`Loaded data for SP ${spNumber}`, 'success');
+        
+    } catch (err) {
+        console.error(`Failed to load data for SP ${spNumber}:`, err);
+        showToast(`Error loading data for SP ${spNumber}`, 'error');
+        resetUiOnPlanChange();
+    }
+}
+
 
 // --- UI & App Initialization ---
-
 function openTab(evt, tabName) {
     document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
     document.querySelectorAll('.tab-link').forEach(link => link.classList.remove('active'));
@@ -54,18 +98,26 @@ async function initializeApp() {
         const data = await apiGet('/strata-plans');
         if (data.success) {
             renderStrataPlans(data.plans);
-            document.getElementById('strata-plan-select').disabled = false;
+            
+            // If user is not an admin and has an assigned plan, auto-select it
+            if (user.role !== 'Admin' && data.plans.length === 1) {
+                strataPlanSelect.value = data.plans[0].sp_number;
+                strataPlanSelect.disabled = true; // Lock the dropdown
+                strataPlanSelect.dispatchEvent(new Event('change')); // Trigger data load
+            } else {
+                strataPlanSelect.disabled = false;
+            }
         } else {
             throw new Error(data.error || 'Failed to load strata plans.');
         }
     } catch (err) {
         console.error('Failed to initialize strata plans:', err);
-        document.getElementById('strata-plan-select').innerHTML = '<option value="">Error loading plans</option>';
+        strataPlanSelect.innerHTML = '<option value="">Error loading plans</option>';
     }
 }
 
+// ... (Rest of the file remains the same)
 // --- Admin Panel & Other Logic ---
-
 async function handleClearCache() {
     const res = await showModal(
         "Are you sure you want to clear all cached data? This includes unsynced submissions.",
@@ -103,7 +155,6 @@ function handleUserActions(e) {
 }
 
 // --- Initial Load & Event Listeners ---
-
 document.addEventListener('DOMContentLoaded', () => {
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -114,6 +165,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   
   logoutBtn.addEventListener('click', handleLogout);
+
+  strataPlanSelect.addEventListener('change', handlePlanChange);
 
   document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
   adminTabBtn.addEventListener('click', (e) => {
@@ -129,24 +182,21 @@ document.addEventListener('DOMContentLoaded', () => {
   clearCacheBtn.addEventListener('click', handleClearCache);
   userListBody.addEventListener('change', handleUserActions);
   
-  // --- CSV Import Listeners ---
+  // CSV Import Listeners
   importCsvBtn.addEventListener('click', () => {
       handleImportCsv(csvFileInput.files[0]);
   });
   
-  // Open file dialog when drop zone is clicked
   csvDropZone.addEventListener('click', () => {
       csvFileInput.click();
   });
   
-  // Update file input when a file is selected via dialog
   csvFileInput.addEventListener('change', () => {
       if(csvFileInput.files.length > 0) {
         document.querySelector('.drop-zone p').textContent = `File selected: ${csvFileInput.files[0].name}`;
       }
   });
 
-  // Drag and drop listeners
   csvDropZone.addEventListener('dragover', (e) => {
       e.preventDefault();
       csvDropZone.classList.add('drag-over');
@@ -161,12 +211,11 @@ document.addEventListener('DOMContentLoaded', () => {
       csvDropZone.classList.remove('drag-over');
       const files = e.dataTransfer.files;
       if (files.length > 0) {
-          csvFileInput.files = files; // Assign dropped file to the input
+          csvFileInput.files = files;
           document.querySelector('.drop-zone p').textContent = `File selected: ${files[0].name}`;
-          handleImportCsv(files[0]); // Optionally, trigger import immediately on drop
+          handleImportCsv(files[0]);
       }
   });
-
 
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {

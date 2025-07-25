@@ -46,7 +46,9 @@ function isAdmin(req, res, next) {
     else return res.status(403).json({ error: 'Forbidden: Admin access required.' });
 }
 
-// --- Corrected Strata Plans Endpoint ---
+// --- API Endpoints ---
+
+// Corrected Strata Plans Endpoint
 app.get('/api/strata-plans', authenticate, async (req, res) => {
   try {
     const db = getDb();
@@ -54,10 +56,8 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
 
     let result;
     if (role === 'Admin') {
-      // Admins get all plans
       result = await db.execute('SELECT sp_number, suburb FROM strata_plans ORDER BY sp_number');
     } else {
-      // Users only get their assigned plan
       result = await db.execute({
           sql: 'SELECT sp_number, suburb FROM strata_plans WHERE id = ?',
           args: [plan_id],
@@ -66,14 +66,13 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
 
     const plans = rowsToObjects(result);
     res.json({ success: true, plans });
-  } catch (err)_ {
+  } catch (err) { // <-- The underscore has been removed here
     console.error('[STRATA PLANS ERROR]', err);
     res.status(500).json({ error: `Could not load strata plans: ${err.message}` });
   }
 });
 
-
-// --- Get Owners Endpoint ---
+// Get Owners Endpoint
 app.get('/api/strata-plans/:planId/owners', authenticate, async (req, res) => {
     try {
         const { planId } = req.params;
@@ -102,8 +101,7 @@ app.get('/api/strata-plans/:planId/owners', authenticate, async (req, res) => {
     }
 });
 
-
-// --- CSV IMPORT ENDPOINT ---
+// CSV IMPORT ENDPOINT
 app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
     const { csvData } = req.body;
     if (!csvData) {
@@ -172,8 +170,7 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
     }
 });
 
-
-// --- Existing API Endpoints ---
+// Login Endpoint
 app.post('/api/login', async (req, res) => {
   try {
     const db = getDb();
@@ -198,13 +195,11 @@ app.post('/api/login', async (req, res) => {
     }
     
     const { id, role, plan_id } = userObject;
-    // Important: Sign the plan_id into the token
     const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       success: true,
       token,
-      // Also return plan_id (as spAccess) to the frontend
       user: { username, role, spAccess: plan_id }
     });
 
@@ -214,7 +209,7 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// The rest of the file remains the same...
+// User Management Endpoints
 app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const db = getDb();
@@ -357,6 +352,7 @@ app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (re
     }
 });
 
+// Global Error Handler
 app.use((err, req, res, next) => {
   console.error('[GLOBAL ERROR]', err);
   res.status(500).json({ error: `Server encountered an error: ${err.message}` });

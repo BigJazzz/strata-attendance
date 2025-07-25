@@ -13,6 +13,7 @@ import {
 import { showModal, clearStrataCache, apiGet } from './utils.js';
 import { renderStrataPlans } from './ui.js';
 
+// --- DOM Elements ---
 const loginForm = document.getElementById('login-form');
 const logoutBtn = document.getElementById('logout-btn');
 const adminTabBtn = document.getElementById('admin-tab-btn');
@@ -26,6 +27,9 @@ const userDisplay = document.getElementById('user-display');
 const adminPanel = document.getElementById('admin-panel');
 const importCsvBtn = document.getElementById('import-csv-btn');
 const csvFileInput = document.getElementById('csv-file-input');
+const csvDropZone = document.getElementById('csv-drop-zone'); // <-- New drop zone element
+
+// --- UI & App Initialization ---
 
 function openTab(evt, tabName) {
     document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
@@ -59,6 +63,8 @@ async function initializeApp() {
         document.getElementById('strata-plan-select').innerHTML = '<option value="">Error loading plans</option>';
     }
 }
+
+// --- Admin Panel & Other Logic ---
 
 async function handleClearCache() {
     const res = await showModal(
@@ -96,6 +102,8 @@ function handleUserActions(e) {
     select.value = "";
 }
 
+// --- Initial Load & Event Listeners ---
+
 document.addEventListener('DOMContentLoaded', () => {
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -121,9 +129,44 @@ document.addEventListener('DOMContentLoaded', () => {
   clearCacheBtn.addEventListener('click', handleClearCache);
   userListBody.addEventListener('change', handleUserActions);
   
+  // --- CSV Import Listeners ---
   importCsvBtn.addEventListener('click', () => {
       handleImportCsv(csvFileInput.files[0]);
   });
+  
+  // Open file dialog when drop zone is clicked
+  csvDropZone.addEventListener('click', () => {
+      csvFileInput.click();
+  });
+  
+  // Update file input when a file is selected via dialog
+  csvFileInput.addEventListener('change', () => {
+      if(csvFileInput.files.length > 0) {
+        document.querySelector('.drop-zone p').textContent = `File selected: ${csvFileInput.files[0].name}`;
+      }
+  });
+
+  // Drag and drop listeners
+  csvDropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      csvDropZone.classList.add('drag-over');
+  });
+
+  csvDropZone.addEventListener('dragleave', () => {
+      csvDropZone.classList.remove('drag-over');
+  });
+
+  csvDropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      csvDropZone.classList.remove('drag-over');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+          csvFileInput.files = files; // Assign dropped file to the input
+          document.querySelector('.drop-zone p').textContent = `File selected: ${files[0].name}`;
+          handleImportCsv(files[0]); // Optionally, trigger import immediately on drop
+      }
+  });
+
 
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {

@@ -1,14 +1,14 @@
 import { getSubmissionQueue } from './utils.js';
 
-// --- NEW - Advanced Owner Checkbox Rendering Logic ---
+// --- Final Version - Advanced Owner Checkbox Rendering Logic ---
 export const renderOwnerCheckboxes = (lot, ownersCache) => {
     const checkboxContainer = document.getElementById('checkbox-container');
     const companyRepGroup = document.getElementById('company-rep-group');
     const ownerData = ownersCache[lot];
 
-    // Hide company representative field by default
+    // Hide company rep field and clear previous state
     companyRepGroup.style.display = 'none';
-    checkboxContainer.innerHTML = ''; // Clear previous checkboxes
+    checkboxContainer.innerHTML = '';
 
     if (!ownerData) {
         checkboxContainer.innerHTML = '<p>Lot not found in this strata plan.</p>';
@@ -16,42 +16,52 @@ export const renderOwnerCheckboxes = (lot, ownersCache) => {
     }
 
     const [mainContact, titleName] = ownerData;
-    const companyKeywords = /\bP\/L\b|\bPTY LTD\b/i;
+    const companyKeywords = /\b(P\/L|PTY LTD)\b/i;
     let namesToDisplay = new Set();
 
-    // Rule 3: Check if the name on title indicates a company
+    // Utility function to remove salutations
+    const stripSalutation = (name) => {
+        if (!name) return '';
+        return name.replace(/^(Mr|Mrs|Ms|Miss|Dr)\.?\s+/i, '').trim();
+    };
+
+    // Rule 3: Check for a company name first
     if (companyKeywords.test(titleName)) {
         checkboxContainer.innerHTML = `<p><b>Company Lot:</b> ${titleName}</p>`;
-        companyRepGroup.style.display = 'block'; // Show field for representative's name
-        return; // Stop further processing
+        companyRepGroup.style.display = 'block';
+        return;
     }
 
-    // Determine the primary name based on rules 1 and 2
     let primaryName = mainContact;
-    // Rule 2: Check if main contact name is just initials (e.g., "S Miller" or "S. Miller")
-    if (mainContact && /^[A-Z]\.?\s/.test(mainContact) && titleName) {
+    // Corrected Rule 2: Check if the main contact consists only of a title and initials.
+    // This will match "Mr J S Mackenzie" but not "Jarryd T Pearson".
+    const initialOnlyRegex = /^(?:(Mr|Mrs|Ms|Miss|Dr)\.?\s+)?([A-Z]\.?\s*)+$/i;
+    if (mainContact && initialOnlyRegex.test(mainContact.trim()) && titleName) {
         primaryName = titleName;
     }
 
-    // Add the primary name(s) to the set for display
+    // Process the determined primary name
     if (primaryName) {
-        // Rule 4: Split multiple owners
+        // Rule 4: Split multiple owners by '&' or 'and'
         primaryName.split(/\s*&\s*|\s+and\s+/i).forEach(name => {
-            namesToDisplay.add(name.trim());
+            // Rule 2 (cont.): Strip salutation before adding
+            namesToDisplay.add(stripSalutation(name));
         });
     }
 
-    // If no names were determined from the primary source, use the title name as a fallback
+    // Fallback to title name if no other names were found
     if (namesToDisplay.size === 0 && titleName) {
         titleName.split(/\s*&\s*|\s+and\s+/i).forEach(name => {
-            namesToDisplay.add(name.trim());
+            namesToDisplay.add(stripSalutation(name));
         });
     }
 
-    // Generate the HTML for the checkboxes
+    // Generate the final HTML for the checkboxes
     let checkboxHTML = '';
     namesToDisplay.forEach(name => {
-        checkboxHTML += `<label class="checkbox-item"><input type="checkbox" name="owner" value="${name}"> ${name}</label>`;
+        if (name) { // Ensure name is not empty after stripping salutation
+            checkboxHTML += `<label class="checkbox-item"><input type="checkbox" name="owner" value="${name}"> ${name}</label>`;
+        }
     });
 
     checkboxContainer.innerHTML = checkboxHTML || '<p>No owner names found for this lot.</p>';
@@ -81,7 +91,7 @@ export const resetUiOnPlanChange = () => {
     document.getElementById('financial-label').lastChild.nodeValue = " Is Financial?";
     document.getElementById('meeting-title').textContent = 'Attendance Form';
     document.getElementById('meeting-date').textContent = '';
-    document.getElementById('company-rep-group').style.display = 'none'; // Ensure this is hidden on reset
+    document.getElementById('company-rep-group').style.display = 'none';
 };
 
 export const renderStrataPlans = (plans) => {
@@ -125,7 +135,6 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
         const isQueued = item.status === 'queued';
         const name = item.name || (item.proxyHolderLot ? `Proxy - Lot ${item.proxyHolderLot}` : 'Unknown');
         const isProxy = String(name).startsWith('Proxy - Lot');
-        // Updated company detection to be more robust
         const isCompany = !isProxy && (item.company || /\b(P\/L|Pty Ltd|Limited)\b/i.test(item.ownerRep));
         
         let ownerRepName = item.ownerRep || name;
@@ -136,17 +145,14 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
             ownerRepName = name;
             rowColor = isQueued ? rowColor : '#c1e1e3';
         } else if (isCompany) {
-            // If the name includes ' - ', it's likely "CompanyName - RepName"
             if (ownerRepName.includes(' - ')) {
                 [companyName, ownerRepName] = ownerRepName.split(' - ').map(s => s.trim());
             } else {
-                 // Otherwise, the rep is the name, and the company is stored separately
                  companyName = item.company || item.ownerRep;
                  ownerRepName = item.name;
             }
              rowColor = isQueued ? rowColor : '#cbc1e3';
         }
-
 
         const row = document.createElement('tr');
         row.style.backgroundColor = rowColor;

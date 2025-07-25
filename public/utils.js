@@ -27,12 +27,13 @@ async function apiRequest(path, { method = 'GET', body = null } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {})
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`${method} ${path} failed: ${response.statusText} – ${errorText}`);
-  }
-
+  // It's better to check for response.ok and then parse JSON
   const data = await response.json();
+
+  if (!response.ok) {
+    // Throw an error with the message from the server's JSON response if available
+    throw new Error(data.error || `Request failed with status ${response.status}`);
+  }
 
   if (data.error && data.error.includes('Authentication failed')) {
     handleLogout();
@@ -67,10 +68,8 @@ export const debounce = (func, delay) => {
 };
 
 /**
- * Display a modal dialog with optional input.
- * Resolves with { confirmed: boolean, value: string|null }.
+ * Display a generic modal dialog with optional input.
  */
-let modalResolve;
 export function showModal(
   text,
   {
@@ -96,7 +95,6 @@ export function showModal(
   modal.style.display = 'flex';
 
   return new Promise(resolve => {
-    modalResolve = resolve;
     btnConfirm.onclick = () => {
       modal.style.display = 'none';
       resolve({ confirmed: true, value: modalInput.value });
@@ -113,6 +111,72 @@ export function showModal(
     };
   });
 }
+
+/**
+ * Display the specialized modal for setting up a new meeting.
+ */
+export function showMeetingModal() {
+  const modal = document.getElementById('meeting-modal');
+  const form = document.getElementById('meeting-form');
+  const dateInput = document.getElementById('meeting-date-input');
+  const typeSelect = document.getElementById('meeting-type-select');
+  const otherGroup = document.getElementById('other-meeting-type-group');
+  const otherInput = document.getElementById('other-meeting-type-input');
+  const quorumLabel = document.getElementById('quorum-total-label');
+  const quorumInput = document.getElementById('quorum-total-input');
+  const btnConfirm = document.getElementById('meeting-confirm-btn');
+  const btnCancel = document.getElementById('meeting-cancel-btn');
+
+  // Set default date to today in YYYY-MM-DD format
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  const todayStr = `${year}-${month}-${day}`;
+  
+  // Reset form state each time it's opened
+  form.reset();
+  dateInput.value = todayStr; // Set default date
+  otherGroup.classList.add('hidden');
+  quorumLabel.textContent = 'Quorum Total';
+  
+  modal.style.display = 'flex';
+
+  return new Promise(resolve => {
+    typeSelect.onchange = () => {
+        const type = typeSelect.value;
+        otherGroup.classList.toggle('hidden', type !== 'Other');
+        otherInput.required = type === 'Other';
+        quorumLabel.textContent = type === 'SCM' ? 'Number of Committee Members' : 'Number of Financial Units';
+    };
+
+    form.onsubmit = (e) => {
+        e.preventDefault();
+        let meetingType = typeSelect.value;
+        if (meetingType === 'Other') {
+            meetingType = otherInput.value.trim();
+        }
+        
+        if (!meetingType) {
+            showToast('Please specify a meeting type.', 'error');
+            return;
+        }
+
+        modal.style.display = 'none';
+        resolve({
+            meetingDate: dateInput.value,
+            meetingType: meetingType,
+            quorumTotal: parseInt(quorumInput.value, 10)
+        });
+    };
+
+    btnCancel.onclick = () => {
+        modal.style.display = 'none';
+        resolve(null); // Resolve with null if the user cancels
+    };
+  });
+}
+
 
 /**
  * Ensure there's a toast container in the DOM.

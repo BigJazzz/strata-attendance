@@ -100,7 +100,7 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
   }
 });
 
-// NEW ENDPOINT for fetching users
+// ENDPOINT for fetching users
 app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const db = getDb();
@@ -109,6 +109,39 @@ app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     } catch (err) {
         console.error('[GET USERS ERROR]', err);
         res.status(500).json({ error: 'Failed to fetch users.' });
+    }
+});
+
+// NEW ENDPOINT for adding users
+app.post('/api/users', authenticate, isAdmin, async (req, res) => {
+    try {
+        const { username, password, role, spAccess } = req.body;
+
+        if (!username || !password || !role) {
+            return res.status(400).json({ error: 'Username, password, and role are required.' });
+        }
+        if (role === 'User' && !spAccess) {
+            return res.status(400).json({ error: 'SP Access is required for the User role.' });
+        }
+
+        const db = getDb();
+        const password_hash = hashPassword(password);
+        const plan_id = role === 'Admin' ? null : spAccess; // Admins have access to all plans
+
+        await db.execute({
+            sql: 'INSERT INTO users (username, password_hash, role, plan_id) VALUES (?, ?, ?, ?)',
+            args: [username, password_hash, role, plan_id]
+        });
+
+        res.status(201).json({ success: true, message: 'User created successfully.' });
+
+    } catch (err) {
+        // Handle unique constraint violation for username
+        if (err.message && err.message.includes('UNIQUE constraint failed: users.username')) {
+             return res.status(409).json({ error: `Username "${req.body.username}" already exists.` });
+        }
+        console.error('[ADD USER ERROR]', err);
+        res.status(500).json({ error: 'Failed to add user.' });
     }
 });
 

@@ -6,6 +6,15 @@ import crypto from 'crypto';
 const app = express();
 app.use(express.json());
 
+// --- Environment Variable Check ---
+// Add a critical check at startup to ensure the JWT_SECRET is set.
+if (!process.env.JWT_SECRET) {
+    console.error("FATAL ERROR: JWT_SECRET environment variable is not set.");
+    // In a real production environment, you might want to exit the process
+    // process.exit(1); 
+    // However, in Vercel, logging the error is the most effective approach.
+}
+
 // --- Turso Client Caching ---
 let cachedDb = null;
 function getDb() {

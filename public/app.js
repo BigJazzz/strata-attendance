@@ -9,7 +9,8 @@ import {
   handleRemoveUser
 } from './auth.js';
 
-import { showModal, clearStrataCache } from './utils.js';
+import { showModal, clearStrataCache, apiGet } from './utils.js';
+import { renderStrataPlans } from './ui.js';
 
 // --- DOM Elements ---
 const loginForm = document.getElementById('login-form');
@@ -24,8 +25,8 @@ const mainApp = document.getElementById('main-app');
 const userDisplay = document.getElementById('user-display');
 const adminPanel = document.getElementById('admin-panel');
 
+// --- UI & App Initialization ---
 
-// --- Tab Switching Logic ---
 function openTab(evt, tabName) {
     document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
     document.querySelectorAll('.tab-link').forEach(link => link.classList.remove('active'));
@@ -33,7 +34,35 @@ function openTab(evt, tabName) {
     evt.currentTarget.classList.add('active');
 }
 
-// --- Admin Panel Logic ---
+async function initializeApp() {
+    loginSection.classList.add('hidden');
+    mainApp.classList.remove('hidden');
+
+    const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
+    if (user) {
+        userDisplay.textContent = user.username;
+        if (user.role === 'Admin') {
+            adminPanel.classList.remove('hidden');
+        }
+    }
+    
+    // Fetch and render strata plans
+    try {
+        const data = await apiGet('/strata-plans');
+        if (data.success) {
+            renderStrataPlans(data.plans);
+            document.getElementById('strata-plan-select').disabled = false;
+        } else {
+            throw new Error(data.error || 'Failed to load strata plans.');
+        }
+    } catch (err) {
+        console.error('Failed to initialize strata plans:', err);
+        document.getElementById('strata-plan-select').innerHTML = '<option value="">Error loading plans</option>';
+    }
+}
+
+// --- Admin Panel & Other Logic ---
+
 async function handleClearCache() {
     const res = await showModal(
         "Are you sure you want to clear all cached data? This includes unsynced submissions.",
@@ -47,7 +76,6 @@ async function handleClearCache() {
     }
 }
 
-// This function handles the dropdown actions in the user list
 function handleUserActions(e) {
     if (!e.target.matches('.user-actions-select')) return;
     
@@ -55,7 +83,6 @@ function handleUserActions(e) {
     const username = select.dataset.username;
     const action = select.value;
 
-    // Return if no action is selected
     if (!action) return;
 
     switch (action) {
@@ -66,48 +93,42 @@ function handleUserActions(e) {
             handleResetPassword(username);
             break;
         case 'remove':
-            // The remove handler in auth.js is designed to take an event object.
-            // We pass the event object 'e' directly.
             handleRemoveUser(e);
             break;
     }
+    select.value = ""; // Reset dropdown after action
 }
 
-// --- Initial Load ---
+// --- Initial Load & Event Listeners ---
+
 document.addEventListener('DOMContentLoaded', () => {
-  // Main listeners
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const loginResult = await handleLogin();
+    const loginResult = await handleLogin(e); // Pass the event to handleLogin
     if (loginResult && loginResult.success) {
-        loginSection.classList.add('hidden');
-        mainApp.classList.remove('hidden');
-        
-        const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
-        if (user) {
-            userDisplay.textContent = user.username;
-            if (user.role === 'Admin') {
-                adminPanel.classList.remove('hidden');
-            }
-        }
+        initializeApp();
     }
   });
+  
   logoutBtn.addEventListener('click', handleLogout);
 
-  // Tab listeners
   document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
   adminTabBtn.addEventListener('click', (e) => {
       openTab(e, 'admin-tab');
-      // Load users when admin tab is opened for the first time
       const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
       if (user && user.role === 'Admin') {
           loadUsers();
       }
   });
 
-  // Admin panel listeners
   changePasswordBtn.addEventListener('click', handleChangePassword);
   addUserBtn.addEventListener('click', handleAddUser);
   clearCacheBtn.addEventListener('click', handleClearCache);
   userListBody.addEventListener('change', handleUserActions);
+  
+  // Check if already logged in (e.g., page refresh)
+  const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
+  if (token) {
+      initializeApp();
+  }
 });

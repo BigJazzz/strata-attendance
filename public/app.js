@@ -94,7 +94,7 @@ const populateStrataPlans = async () => {
       result.plans.forEach(plan => {
         const option = document.createElement('option');
         option.value = plan.sp;
-        option.textContent = `${plan.sp} ${plan.suburb}`;
+        option.textContent = `${plan.sp_number} ${plan.suburb}`;
         strataPlanSelect.appendChild(option);
       });
     } else {

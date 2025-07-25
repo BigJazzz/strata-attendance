@@ -38,8 +38,6 @@ let strataPlanCache = {};
 // --- Core App Logic ---
 async function handlePlanChange(event) {
     const spNumber = event.target.value;
-    
-    // Reset the UI as soon as the plan changes
     resetUiOnPlanChange();
 
     if (!spNumber) {
@@ -85,7 +83,6 @@ const debouncedRenderOwners = debounce((lotValue) => {
         renderOwnerCheckboxes(lotValue, strataPlanCache);
     }
 }, 300);
-
 
 // --- UI & App Initialization ---
 function openTab(evt, tabName) {
@@ -229,6 +226,17 @@ document.addEventListener('DOMContentLoaded', () => {
           csvFileInput.files = files;
           document.querySelector('.drop-zone p').textContent = `File selected: ${files[0].name}`;
           handleImportCsv(files[0]);
+      }
+  });
+  
+  // New Collapsible Logic
+  document.querySelector('.collapsible-toggle').addEventListener('click', function() {
+      this.classList.toggle('active');
+      const content = this.nextElementSibling;
+      if (content.style.maxHeight) {
+          content.style.maxHeight = null;
+      } else {
+          content.style.maxHeight = content.scrollHeight + "px";
       }
   });
 

@@ -15,6 +15,26 @@ body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
 }
 
+/* --- Drop Zone Styles --- */
+.drop-zone {
+    border: 2px dashed #ccc;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+}
+
+.drop-zone.drag-over {
+    background-color: #e9ecef;
+    border-color: #007bff;
+}
+
+.drop-zone p {
+    margin: 0.5rem 0 1rem;
+    color: #6c757d;
+}
+
 .header-container { 
     display: flex; 
     justify-content: space-between; 
@@ -122,19 +142,19 @@ button:disabled {
     margin-top: 0; /* Remove top margin */
 }
 
-#email-pdf-btn, #change-meeting-type-btn { 
+#email-pdf-btn, #change-meeting-type-btn, #import-csv-btn { 
     background-color: #17a2b8; 
     margin-top: 1rem; 
 }
 
-#email-pdf-btn:hover, #change-meeting-type-btn:hover { 
+#email-pdf-btn:hover, #change-meeting-type-btn:hover, #import-csv-btn:hover { 
     background-color: #138496; 
 }
 
 #sync-btn { 
     width: auto;
-    float: right; /* Use float to align right */
-    margin-top: -45px; /* Adjust vertical position to align with heading */
+    float: right; 
+    margin-top: -45px;
     margin-bottom: 1rem;
 }
 
@@ -151,7 +171,7 @@ button:disabled {
     background-color: #c82333; 
 }
 
-#status, #login-status { 
+#status, #login-status, #import-status { 
     text-align: center; 
     margin-top: 1rem; 
     font-weight: bold; 
@@ -321,7 +341,7 @@ button:disabled {
     padding: 14px 16px;
     transition: 0.3s;
     color: #333;
-    width: auto; /* Override the default 100% width for buttons */
+    width: auto;
 }
 
 .tab-container button:hover {
@@ -340,44 +360,34 @@ button:disabled {
     border-radius: 0 0 8px 8px;
 }
 
-#sync-btn { 
-    width: auto;
-    display: block; /* To allow margin auto to work */
-    margin-left: auto; /* Aligns the button to the right */
-    margin-right: 0;
-    margin-top: 1rem; /* Add some space above the button */
-    margin-bottom: 1rem; /* Add some space below the button */
-}
-
 .report-date-selector {
     margin-top: 1.5rem;
     margin-bottom: 0.5rem;
-    display: flex; /* Add this */
-    align-items: flex-end; /* Add this to align items vertically */
-    gap: 0.5rem; /* Add this to create space between items */
+    display: flex; 
+    align-items: flex-end; 
+    gap: 0.5rem; 
 }
 
 .report-date-selector label {
     font-weight: bold;
-    margin-bottom: 0; /* Adjust margin */
+    margin-bottom: 0;
     display: block;
-    flex-shrink: 0; /* Prevent label from shrinking */
+    flex-shrink: 0;
 }
 
 #report-date {
-    width: auto; /* Allow input to size naturally */
-    flex-grow: 1; /* Allow input to fill available space */
+    width: auto; 
+    flex-grow: 1; 
 }
 
 .strata-plan-container {
     display: flex;
     align-items: center;
-    gap: 0.5rem; /* Adds a small space between the dropdown and the button */
+    gap: 0.5rem;
 }
 
-/* Override default button width and margin for this specific button */
 #change-meeting-type-btn {
     width: auto;
     margin-top: 0;
-    flex-shrink: 0; /* Prevent the button from shrinking if space is tight */
+    flex-shrink: 0;
 }

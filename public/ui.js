@@ -16,7 +16,7 @@ export const renderOwnerCheckboxes = (lot, ownersCache) => {
     }
 
     const [mainContact, titleName] = ownerData;
-    const companyKeywords = /\b(P\/L|PTY LTD)\b/i;
+    const companyKeywords = /\b(P\/L|PTY LTD|LIMITED|INVESTMENTS|MANAGEMENT|SUPERANNUATION FUND)\b/i;
     let namesToDisplay = new Set();
 
     // Utility function to remove salutations
@@ -25,41 +25,52 @@ export const renderOwnerCheckboxes = (lot, ownersCache) => {
         return name.replace(/^(Mr|Mrs|Ms|Miss|Dr)\.?\s+/i, '').trim();
     };
 
-    // Rule 3: Check for a company name first
-    if (companyKeywords.test(titleName)) {
-        checkboxContainer.innerHTML = `<p><b>Company Lot:</b> ${titleName}</p>`;
-        companyRepGroup.style.display = 'block';
-        return;
+    // --- New Company Logic ---
+    const mainContactIsCompany = mainContact && companyKeywords.test(mainContact);
+    const titleNameIsCompany = titleName && companyKeywords.test(titleName);
+    let companyName = '';
+
+    if (mainContactIsCompany) {
+        // If both are companies, choose the longer (more complete) name
+        if (titleNameIsCompany && titleName.length > mainContact.length) {
+            companyName = titleName;
+        } else {
+            companyName = mainContact;
+        }
+    } else if (titleNameIsCompany) {
+        // If only titleName is a company, use it
+        companyName = titleName;
     }
 
+    // If a company was identified, display it and show the rep field
+    if (companyName) {
+        checkboxContainer.innerHTML = `<p><b>Company Lot:</b> ${companyName}</p>`;
+        companyRepGroup.style.display = 'block';
+        return; // Stop further processing
+    }
+
+    // --- Logic for Individual Owners (if not a company) ---
     let primaryName = mainContact;
-    // Corrected Rule 2: Check if the main contact consists only of a title and initials.
-    // This will match "Mr J S Mackenzie" but not "Jarryd T Pearson".
     const initialOnlyRegex = /^(?:(Mr|Mrs|Ms|Miss|Dr)\.?\s+)?([A-Z]\.?\s*)+$/i;
     if (mainContact && initialOnlyRegex.test(mainContact.trim()) && titleName) {
         primaryName = titleName;
     }
 
-    // Process the determined primary name
     if (primaryName) {
-        // Rule 4: Split multiple owners by '&' or 'and'
         primaryName.split(/\s*&\s*|\s+and\s+/i).forEach(name => {
-            // Rule 2 (cont.): Strip salutation before adding
             namesToDisplay.add(stripSalutation(name));
         });
     }
 
-    // Fallback to title name if no other names were found
     if (namesToDisplay.size === 0 && titleName) {
         titleName.split(/\s*&\s*|\s+and\s+/i).forEach(name => {
             namesToDisplay.add(stripSalutation(name));
         });
     }
 
-    // Generate the final HTML for the checkboxes
     let checkboxHTML = '';
     namesToDisplay.forEach(name => {
-        if (name) { // Ensure name is not empty after stripping salutation
+        if (name) {
             checkboxHTML += `<label class="checkbox-item"><input type="checkbox" name="owner" value="${name}"> ${name}</label>`;
         }
     });

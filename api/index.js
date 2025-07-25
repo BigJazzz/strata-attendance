@@ -1,19 +1,16 @@
 import express from 'express';
 import { createClient } from '@libsql/client';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
+import crypto from 'crypto'; // Use crypto for password hashing
 
 const app = express();
 app.use(express.json());
 
 // --- Environment Variable Check ---
-// Add a critical check at startup to ensure the JWT_SECRET is set.
 if (!process.env.JWT_SECRET) {
     console.error("FATAL ERROR: JWT_SECRET environment variable is not set.");
-    // In a real production environment, you might want to exit the process
-    // process.exit(1); 
-    // However, in Vercel, logging the error is the most effective approach.
 }
+
 
 // --- Turso Client Caching ---
 let cachedDb = null;
@@ -53,10 +50,12 @@ function isAdmin(req, res, next) {
     }
 }
 
-
+// --- Hashing Function ---
+// This function now exactly matches the method you used to create the hashes.
 function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
 }
+
 
 // --- API Endpoints ---
 
@@ -68,15 +67,21 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Missing credentials.' });
     }
 
-    const hashed = hashPassword(password);
     const result = await db.execute({
       sql: 'SELECT id, username, password_hash, role, plan_id FROM users WHERE username = ?',
       args: [username]
     });
 
     const row = result.rows[0];
-    if (!row || row.password_hash !== hashed) {
+    if (!row) {
       return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+
+    // Hash the incoming password and compare it to the stored hash
+    const hashed = hashPassword(password);
+
+    if (row.password_hash !== hashed) {
+        return res.status(401).json({ error: 'Invalid username or password.' });
     }
     
     const { id, role, plan_id } = row;

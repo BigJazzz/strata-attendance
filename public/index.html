@@ -32,8 +32,12 @@
     <div id="meeting-modal" class="modal-overlay">
         <div class="modal-content">
             <h3>New Meeting Setup</h3>
-            <p>No meeting has been started for this plan today. Please provide the details below.</p>
+            <p>No meeting has been started for this plan on the selected date. Please provide the details below.</p>
             <form id="meeting-form">
+                <div class="form-group">
+                    <label for="meeting-date-input">Meeting Date</label>
+                    <input type="date" id="meeting-date-input" required>
+                </div>
                 <div class="form-group">
                     <label for="meeting-type-select">Meeting Type</label>
                     <select id="meeting-type-select" required>

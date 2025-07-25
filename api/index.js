@@ -46,25 +46,24 @@ function isAdmin(req, res, next) {
     else return res.status(403).json({ error: 'Forbidden: Admin access required.' });
 }
 
-// --- NEW Meeting Endpoints ---
-app.get('/api/meetings/:spNumber/today', authenticate, async (req, res) => {
+// --- Meeting Endpoints (Updated for Date Parameter) ---
+app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
     try {
-        const { spNumber } = req.params;
+        const { spNumber, date } = req.params;
         const db = getDb();
-        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
         const result = await db.execute({
             sql: `SELECT m.meeting_type, m.quorum_total 
                   FROM meetings m
                   JOIN strata_plans sp ON m.plan_id = sp.id
                   WHERE sp.sp_number = ? AND m.meeting_date = ?`,
-            args: [spNumber, today],
+            args: [spNumber, date],
         });
 
         if (result.rows.length > 0) {
             res.json({ success: true, meeting: rowsToObjects(result)[0] });
         } else {
-            res.json({ success: false, message: 'No meeting found for today.' });
+            res.json({ success: false, message: 'No meeting found for this date.' });
         }
     } catch (err) {
         console.error('[GET MEETING ERROR]', err);
@@ -74,14 +73,12 @@ app.get('/api/meetings/:spNumber/today', authenticate, async (req, res) => {
 
 app.post('/api/meetings', authenticate, async (req, res) => {
     try {
-        const { spNumber, meetingType, quorumTotal } = req.body;
-        if (!spNumber || !meetingType || !quorumTotal) {
+        const { spNumber, meetingDate, meetingType, quorumTotal } = req.body;
+        if (!spNumber || !meetingDate || !meetingType || !quorumTotal) {
             return res.status(400).json({ error: 'Missing meeting details.' });
         }
 
         const db = getDb();
-        const today = new Date().toISOString().slice(0, 10);
-
         const planResult = await db.execute({
             sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
             args: [spNumber],
@@ -94,14 +91,14 @@ app.post('/api/meetings', authenticate, async (req, res) => {
 
         await db.execute({
             sql: 'INSERT INTO meetings (plan_id, meeting_date, meeting_type, quorum_total) VALUES (?, ?, ?, ?)',
-            args: [plan_id, today, meetingType, quorumTotal],
+            args: [plan_id, meetingDate, meetingType, quorumTotal],
         });
 
         res.status(201).json({ success: true, message: 'Meeting created successfully.' });
 
     } catch (err) {
         if (err.message && err.message.includes('UNIQUE constraint failed')) {
-            return res.status(409).json({ error: 'A meeting for this plan already exists today.' });
+            return res.status(409).json({ error: 'A meeting for this plan already exists on this date.' });
         }
         console.error('[CREATE MEETING ERROR]', err);
         res.status(500).json({ error: 'Failed to create meeting.' });
@@ -111,8 +108,6 @@ app.post('/api/meetings', authenticate, async (req, res) => {
 
 // --- Existing API Endpoints ---
 // ... (The rest of your api/index.js file remains unchanged)
-// ...
-// --- Login
 app.post('/api/login', async (req, res) => {
   try {
     const db = getDb();
@@ -151,7 +146,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Get All Strata Plans
 app.get('/api/strata-plans', authenticate, async (req, res) => {
   try {
     const db = getDb();
@@ -176,7 +170,6 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
 });
 
 
-// Get Owners Endpoint
 app.get('/api/strata-plans/:planId/owners', authenticate, async (req, res) => {
     try {
         const { planId } = req.params;
@@ -205,7 +198,6 @@ app.get('/api/strata-plans/:planId/owners', authenticate, async (req, res) => {
     }
 });
 
-// CSV IMPORT ENDPOINT
 app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
     const { csvData } = req.body;
     if (!csvData) {
@@ -274,7 +266,6 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
     }
 });
 
-// User Management Endpoints
 app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const db = getDb();

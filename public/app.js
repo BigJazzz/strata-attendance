@@ -6,6 +6,9 @@ const loginStatus = document.getElementById('login-status');
 const userDisplay = document.getElementById('user-display');
 const logoutBtn = document.getElementById('logout-btn');
 const strataPlanSelect = document.getElementById('strata-plan-select');
+// New Admin elements
+const adminTabBtn = document.getElementById('admin-tab-btn');
+const adminPanel = document.getElementById('admin-panel');
 
 // --- Helper for API calls ---
 function getAuthToken() {
@@ -109,7 +112,25 @@ const populateStrataPlans = async () => {
 const showMainApp = (user) => {
   loginSection.classList.add('hidden');
   mainAppSection.classList.remove('hidden');
-  userDisplay.textContent = `Logged in as: ${user.username} (${user.role})`;
+  
+  // There are two user-display elements, one in each tab.
+  document.querySelectorAll('#user-display').forEach(el => {
+    el.textContent = `${user.username} (${user.role})`;
+  });
+
+  // The Admin tab is always visible now.
+  adminTabBtn.classList.remove('hidden');
+
+  // Show/Hide the admin-specific *panel* inside the tab based on user role.
+  if (user.role === 'Admin') {
+    adminPanel.classList.remove('hidden');
+    // We can now call loadUsers from auth.js
+    // Note: We need to import it first.
+    // For now, let's just ensure the panel shows.
+  } else {
+    adminPanel.classList.add('hidden');
+  }
+
   populateStrataPlans();
 };
 
@@ -121,10 +142,24 @@ const showLogin = () => {
   loginForm.reset();
 };
 
+// --- Tab Switching Logic ---
+function openTab(evt, tabName) {
+    document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
+    document.querySelectorAll('.tab-link').forEach(link => link.classList.remove('active'));
+    document.getElementById(tabName).style.display = 'block';
+    evt.currentTarget.classList.add('active');
+}
+
+
 // --- Initial Load ---
 document.addEventListener('DOMContentLoaded', () => {
   loginForm.addEventListener('submit', handleLogin);
   logoutBtn.addEventListener('click', handleLogout);
+
+  // Add event listeners for tab buttons
+  document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
+  adminTabBtn.addEventListener('click', (e) => openTab(e, 'admin-tab'));
+
 
   const userString = sessionStorage.getItem('attendanceUser');
   if (getAuthToken() && userString) {

@@ -10,8 +10,8 @@ import {
   handleImportCsv
 } from './auth.js';
 
-import { showModal, clearStrataCache, apiGet, showToast } from './utils.js';
-import { renderStrataPlans, resetUiOnPlanChange } from './ui.js';
+import { showModal, clearStrataCache, apiGet, showToast, debounce } from './utils.js';
+import { renderStrataPlans, resetUiOnPlanChange, renderOwnerCheckboxes } from './ui.js';
 
 // --- DOM Elements ---
 const loginForm = document.getElementById('login-form');
@@ -55,15 +55,20 @@ async function handlePlanChange(event) {
             const data = await apiGet(`/strata-plans/${spNumber}/owners`);
             if (!data.success) throw new Error(data.error);
 
-            strataPlanCache = data.owners.reduce((acc, owner) => {
-                acc[owner.lot_number] = [owner.main_contact_name, owner.name_on_title, owner.unit_number];
-                return acc;
-            }, {});
+            if (Array.isArray(data.owners)) {
+                strataPlanCache = data.owners.reduce((acc, owner) => {
+                    acc[owner.lot_number] = [owner.main_contact_name, owner.name_on_title, owner.unit_number];
+                    return acc;
+                }, {});
+            } else {
+                strataPlanCache = {};
+            }
             
             localStorage.setItem(`strata_${spNumber}`, JSON.stringify(strataPlanCache));
         }
         
         lotNumberInput.disabled = false;
+        lotNumberInput.focus(); // Set focus to the lot number input
         showToast(`Loaded data for SP ${spNumber}`, 'success');
         
     } catch (err) {
@@ -72,6 +77,13 @@ async function handlePlanChange(event) {
         resetUiOnPlanChange();
     }
 }
+
+// Debounced function to render owners as user types
+const debouncedRenderOwners = debounce((lotValue) => {
+    if (lotValue && strataPlanCache) {
+        renderOwnerCheckboxes(lotValue, strataPlanCache);
+    }
+}, 300); // 300ms delay
 
 
 // --- UI & App Initialization ---
@@ -99,11 +111,10 @@ async function initializeApp() {
         if (data.success) {
             renderStrataPlans(data.plans);
             
-            // If user is not an admin and has an assigned plan, auto-select it
             if (user.role !== 'Admin' && data.plans.length === 1) {
                 strataPlanSelect.value = data.plans[0].sp_number;
-                strataPlanSelect.disabled = true; // Lock the dropdown
-                strataPlanSelect.dispatchEvent(new Event('change')); // Trigger data load
+                strataPlanSelect.disabled = true;
+                strataPlanSelect.dispatchEvent(new Event('change'));
             } else {
                 strataPlanSelect.disabled = false;
             }
@@ -116,7 +127,6 @@ async function initializeApp() {
     }
 }
 
-// ... (Rest of the file remains the same) 
 // --- Admin Panel & Other Logic ---
 async function handleClearCache() {
     const res = await showModal(
@@ -167,6 +177,11 @@ document.addEventListener('DOMContentLoaded', () => {
   logoutBtn.addEventListener('click', handleLogout);
 
   strataPlanSelect.addEventListener('change', handlePlanChange);
+  
+  // Listen for input in the lot number field
+  lotNumberInput.addEventListener('input', (e) => {
+      debouncedRenderOwners(e.target.value.trim());
+  });
 
   document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
   adminTabBtn.addEventListener('click', (e) => {

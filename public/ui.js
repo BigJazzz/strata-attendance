@@ -1,5 +1,29 @@
 import { getSubmissionQueue } from './utils.js';
 
+// --- NEW Function to render owner checkboxes ---
+export const renderOwnerCheckboxes = (lot, ownersCache) => {
+    const checkboxContainer = document.getElementById('checkbox-container');
+    const ownerData = ownersCache[lot];
+
+    if (!ownerData) {
+        checkboxContainer.innerHTML = '<p>Lot not found in this strata plan.</p>';
+        return;
+    }
+
+    const [mainContact, titleName] = ownerData;
+    let checkboxHTML = '';
+
+    if (mainContact) {
+        checkboxHTML += `<label class="checkbox-item"><input type="checkbox" name="owner" value="${mainContact}"> ${mainContact}</label>`;
+    }
+    if (titleName && titleName !== mainContact) {
+        checkboxHTML += `<label class="checkbox-item"><input type="checkbox" name="owner" value="${titleName}"> ${titleName} (On Title)</label>`;
+    }
+
+    checkboxContainer.innerHTML = checkboxHTML || '<p>No owner names found for this lot.</p>';
+};
+
+
 // --- UI & Rendering ---
 export const updateDisplay = (sp, currentSyncedAttendees, currentTotalLots, strataPlanCache) => {
     if (!sp) return;
@@ -8,7 +32,6 @@ export const updateDisplay = (sp, currentSyncedAttendees, currentTotalLots, stra
     const attendedLots = new Set();
     allAttendees.forEach(attendee => attendedLots.add(String(attendee.lot)));
     
-    // Pass the cache to the render function
     renderAttendeeTable(allAttendees, strataPlanCache);
     updateQuorumDisplay(attendedLots.size, currentTotalLots);
 };
@@ -30,11 +53,9 @@ export const renderStrataPlans = (plans) => {
     const strataPlanSelect = document.getElementById('strata-plan-select');
     if (!plans) return;
     strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
-    // The API already sorts by sp_number, but sorting here is a good fallback
     plans.sort((a, b) => a.sp_number - b.sp_number); 
     plans.forEach(plan => {
         const option = document.createElement('option');
-        // Corrected property from 'sp' to 'sp_number'
         option.value = plan.sp_number; 
         option.textContent = `${plan.sp_number} - ${plan.suburb}`;
         strataPlanSelect.appendChild(option);
@@ -47,7 +68,6 @@ export const renderStrataPlans = (plans) => {
         strataPlanSelect.dispatchEvent(new Event('change'));
     }
 };
-
 
 export const renderAttendeeTable = (attendees, strataPlanCache) => {
     const attendeeTableBody = document.getElementById('attendee-table-body');
@@ -65,10 +85,10 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
     attendees.sort((a, b) => a.lot - b.lot);
     attendees.forEach(item => {
         const lotData = strataPlanCache ? strataPlanCache[item.lot] : null;
-        const unitNumber = lotData ? (lotData[0] || 'N/A') : 'N/A';
+        const unitNumber = lotData ? (lotData[2] || 'N/A') : 'N/A'; // Unit number is now at index 2
 
         const isQueued = item.status === 'queued';
-        const name = item.name || (item.proxyHolderLot ? `Proxy - Lot ${item.proxyHolderLot}` : item.names.join(', '));
+        const name = item.name || (item.proxyHolderLot ? `Proxy - Lot ${item.proxyHolderLot}` : 'Unknown');
         const isProxy = String(name).startsWith('Proxy - Lot');
         const isCompany = !isProxy && /\b(P\/L|Pty Ltd|Limited)\b/i.test(name);
         let ownerRepName = '', companyName = '', rowColor = isQueued ? '#f5e0df' : '#d4e3c1';

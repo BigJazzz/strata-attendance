@@ -11,9 +11,10 @@
     "@libsql/client": "^0.15.10",
     "bcrypt": "^6.0.0",
     "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2"
+    "jsonwebtoken": "^9.0.2",
+    "papaparse": "^5.5.3"
   },
   "engines": {
-    "node": "18.x"
+    "node": ">=18.x"
   }
 }

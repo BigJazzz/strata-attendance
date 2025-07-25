@@ -1,7 +1,6 @@
 import express from 'express';
 import { createClient } from '@libsql/client';
 import jwt from 'jsonwebtoken';
-import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 
 const app = express();
@@ -15,6 +14,17 @@ function getDb() {
   const token = process.env.TURSO_AUTH_TOKEN;
   cachedDb = createClient({ url, authToken: token, remoteOnly: true });
   return cachedDb;
+}
+
+// --- Helper to format DB results ---
+function rowsToObjects(result) {
+    return result.rows.map(row => {
+        const obj = {};
+        result.columns.forEach((col, index) => {
+            obj[col] = row[index];
+        });
+        return obj;
+    });
 }
 
 // --- Middleware ---
@@ -59,12 +69,17 @@ app.post('/api/login', async (req, res) => {
       args: [username]
     });
 
-    const row = result.rows[0];
-    if (!row || !bcrypt.compareSync(password, row.password_hash)) { // <-- Use bcrypt.compareSync
+    if (result.rows.length === 0) {
+        return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+
+    const userObject = rowsToObjects(result)[0];
+
+    if (!bcrypt.compareSync(password, userObject.password_hash)) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
     
-    const { id, role, plan_id } = row;
+    const { id, role, plan_id } = userObject;
     const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
@@ -84,7 +99,8 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
   try {
     const db = getDb();
     const result = await db.execute('SELECT sp_number, suburb FROM strata_plans ORDER BY sp_number');
-    res.json({ success: true, plans: result.rows });
+    const plans = rowsToObjects(result);
+    res.json({ success: true, plans });
   } catch (err) {
     console.error('[STRATA PLANS ERROR]', err);
     res.status(500).json({ error: `Could not load strata plans: ${err.message}` });
@@ -99,7 +115,8 @@ app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const db = getDb();
         const result = await db.execute('SELECT u.username, u.role, sp.sp_number as spAccess FROM users u LEFT JOIN strata_plans sp ON u.plan_id = sp.id');
-        res.json({ success: true, users: result.rows });
+        const users = rowsToObjects(result);
+        res.json({ success: true, users });
     } catch (err) {
         console.error('[GET USERS ERROR]', err);
         res.status(500).json({ error: 'Failed to fetch users.' });
@@ -126,11 +143,11 @@ app.post('/api/users', authenticate, isAdmin, async (req, res) => {
             });
 
             if (planResult.rows.length === 0) return res.status(400).json({ error: `Strata Plan with number ${spAccess} not found.` });
-            plan_id = planResult.rows[0].id;
+            plan_id = planResult.rows[0][0]; // ID is in the first column of the first row
         }
 
         const salt = bcrypt.genSaltSync(10);
-        const password_hash = bcrypt.hashSync(password, salt); // <-- Use bcrypt.hashSync
+        const password_hash = bcrypt.hashSync(password, salt);
 
         await db.execute({
             sql: 'INSERT INTO users (username, password_hash, role, plan_id) VALUES (?, ?, ?, ?)',
@@ -177,7 +194,7 @@ app.patch('/api/users/:username/password', authenticate, async (req, res) => {
         
         const db = getDb();
         const salt = bcrypt.genSaltSync(10);
-        const password_hash = bcrypt.hashSync(newPassword, salt); // <-- Use bcrypt.hashSync
+        const password_hash = bcrypt.hashSync(newPassword, salt);
 
         await db.execute({
             sql: 'UPDATE users SET password_hash = ? WHERE username = ?',
@@ -205,7 +222,7 @@ app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) =
                 args: [spNumber]
             });
             if (planResult.rows.length === 0) return res.status(400).json({ error: `Strata Plan with number ${spNumber} not found.`});
-            newPlanId = planResult.rows[0].id;
+            newPlanId = planResult.rows[0][0];
         }
 
         await db.execute({
@@ -226,7 +243,7 @@ app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (re
         const defaultPassword = 'Password123!';
         
         const salt = bcrypt.genSaltSync(10);
-        const password_hash = bcrypt.hashSync(defaultPassword, salt); // <-- Use bcrypt.hashSync
+        const password_hash = bcrypt.hashSync(defaultPassword, salt);
         const db = getDb();
 
         await db.execute({

@@ -30,24 +30,24 @@ export const renderStrataPlans = (plans) => {
     const strataPlanSelect = document.getElementById('strata-plan-select');
     if (!plans) return;
     strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
-    plans.sort((a, b) => a.sp - b.sp);
+    // The API already sorts by sp_number, but sorting here is a good fallback
+    plans.sort((a, b) => a.sp_number - b.sp_number); 
     plans.forEach(plan => {
         const option = document.createElement('option');
-        option.value = plan.sp;
-        option.textContent = `${plan.sp} - ${plan.suburb}`;
+        // Corrected property from 'sp' to 'sp_number'
+        option.value = plan.sp_number; 
+        option.textContent = `${plan.sp_number} - ${plan.suburb}`;
         strataPlanSelect.appendChild(option);
     });
 
-    // Find the saved strata plan from the cookie
     const savedSP = document.cookie.split('; ').find(row => row.startsWith('selectedSP='))?.split('=')[1];
 
-    // If a saved plan exists, set the value and trigger the change event
     if (savedSP && strataPlanSelect.querySelector(`option[value="${savedSP}"]`)) {
         strataPlanSelect.value = savedSP;
-        // Add this line to manually fire the event
         strataPlanSelect.dispatchEvent(new Event('change'));
     }
 };
+
 
 export const renderAttendeeTable = (attendees, strataPlanCache) => {
     const attendeeTableBody = document.getElementById('attendee-table-body');
@@ -64,9 +64,8 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
 
     attendees.sort((a, b) => a.lot - b.lot);
     attendees.forEach(item => {
-        // Corrected lookup for the Unit Number from the updated cache
         const lotData = strataPlanCache ? strataPlanCache[item.lot] : null;
-        const unitNumber = lotData ? (lotData[0] || 'N/A') : 'N/A'; // Unit is now at index 0
+        const unitNumber = lotData ? (lotData[0] || 'N/A') : 'N/A';
 
         const isQueued = item.status === 'queued';
         const name = item.name || (item.proxyHolderLot ? `Proxy - Lot ${item.proxyHolderLot}` : item.names.join(', '));
@@ -101,7 +100,6 @@ export const updateQuorumDisplay = (count = 0, total = 0) => {
     const quorumDisplay = document.getElementById('quorum-display');
     const percentage = total > 0 ? Math.floor((count / total) * 100) : 0;
     
-    // Calculate the number of lots required for quorum, rounded up.
     const quorumThreshold = Math.ceil(total * 0.25);
     const isQuorumMet = count >= quorumThreshold;
 

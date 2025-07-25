@@ -25,9 +25,6 @@ const loginSection = document.getElementById('login-section');
 const mainApp = document.getElementById('main-app');
 const userDisplay = document.getElementById('user-display');
 const adminPanel = document.getElementById('admin-panel');
-const importCsvBtn = document.getElementById('import-csv-btn');
-const csvFileInput = document.getElementById('csv-file-input');
-const csvDropZone = document.getElementById('csv-drop-zone');
 const strataPlanSelect = document.getElementById('strata-plan-select');
 const lotNumberInput = document.getElementById('lot-number');
 
@@ -106,7 +103,6 @@ async function handlePlanChange(event) {
     }
 }
 
-
 const debouncedRenderOwners = debounce((lotValue) => {
     if (lotValue && strataPlanCache) {
         renderOwnerCheckboxes(lotValue, strataPlanCache);
@@ -121,6 +117,59 @@ function openTab(evt, tabName) {
     evt.currentTarget.classList.add('active');
 }
 
+function setupAdminEventListeners() {
+    // This function is only called when the admin panel is visible,
+    // so we can be sure these elements exist.
+    const importCsvBtn = document.getElementById('import-csv-btn');
+    const csvFileInput = document.getElementById('csv-file-input');
+    const csvDropZone = document.getElementById('csv-drop-zone');
+    const collapsibleToggle = document.querySelector('.collapsible-toggle');
+
+    importCsvBtn.addEventListener('click', () => {
+        handleImportCsv(csvFileInput.files[0]);
+    });
+    
+    csvDropZone.addEventListener('click', () => {
+        csvFileInput.click();
+    });
+    
+    csvFileInput.addEventListener('change', () => {
+        if(csvFileInput.files.length > 0) {
+            document.querySelector('.drop-zone p').textContent = `File selected: ${csvFileInput.files[0].name}`;
+        }
+    });
+
+    csvDropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        csvDropZone.classList.add('drag-over');
+    });
+
+    csvDropZone.addEventListener('dragleave', () => {
+        csvDropZone.classList.remove('drag-over');
+    });
+
+    csvDropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        csvDropZone.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            csvFileInput.files = files;
+            document.querySelector('.drop-zone p').textContent = `File selected: ${files[0].name}`;
+            handleImportCsv(files[0]);
+        }
+    });
+    
+    collapsibleToggle.addEventListener('click', function() {
+        this.classList.toggle('active');
+        const content = this.nextElementSibling;
+        if (content.style.maxHeight) {
+            content.style.maxHeight = null;
+        } else {
+            content.style.maxHeight = content.scrollHeight + "px";
+        }
+    });
+}
+
 async function initializeApp() {
     loginSection.classList.add('hidden');
     mainApp.classList.remove('hidden');
@@ -130,6 +179,7 @@ async function initializeApp() {
         userDisplay.textContent = user.username;
         if (user.role === 'Admin') {
             adminPanel.classList.remove('hidden');
+            setupAdminEventListeners(); // Set up admin-only features
         }
     }
     
@@ -138,7 +188,7 @@ async function initializeApp() {
         if (data.success) {
             renderStrataPlans(data.plans);
             
-            if (user.role !== 'Admin' && data.plans.length === 1) {
+            if (user && user.role !== 'Admin' && data.plans.length === 1) {
                 strataPlanSelect.value = data.plans[0].sp_number;
                 strataPlanSelect.disabled = true;
                 strataPlanSelect.dispatchEvent(new Event('change'));
@@ -193,6 +243,7 @@ function handleUserActions(e) {
 
 // --- Initial Load & Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
+  // Listeners for elements that are ALWAYS present on the page
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const loginResult = await handleLogin(e);
@@ -202,13 +253,10 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   
   logoutBtn.addEventListener('click', handleLogout);
-
   strataPlanSelect.addEventListener('change', handlePlanChange);
-  
   lotNumberInput.addEventListener('input', (e) => {
       debouncedRenderOwners(e.target.value.trim());
   });
-
   document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
   adminTabBtn.addEventListener('click', (e) => {
       openTab(e, 'admin-tab');
@@ -217,61 +265,12 @@ document.addEventListener('DOMContentLoaded', () => {
           loadUsers();
       }
   });
-
   changePasswordBtn.addEventListener('click', handleChangePassword);
   addUserBtn.addEventListener('click', handleAddUser);
   clearCacheBtn.addEventListener('click', handleClearCache);
   userListBody.addEventListener('change', handleUserActions);
   
-  // CSV Import Listeners
-  importCsvBtn.addEventListener('click', () => {
-      handleImportCsv(csvFileInput.files[0]);
-  });
-  
-  csvDropZone.addEventListener('click', () => {
-      csvFileInput.click();
-  });
-  
-  csvFileInput.addEventListener('change', () => {
-      if(csvFileInput.files.length > 0) {
-        document.querySelector('.drop-zone p').textContent = `File selected: ${csvFileInput.files[0].name}`;
-      }
-  });
-
-  csvDropZone.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      csvDropZone.classList.add('drag-over');
-  });
-
-  csvDropZone.addEventListener('dragleave', () => {
-      csvDropZone.classList.remove('drag-over');
-  });
-
-  csvDropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      csvDropZone.classList.remove('drag-over');
-      const files = e.dataTransfer.files;
-      if (files.length > 0) {
-          csvFileInput.files = files;
-          document.querySelector('.drop-zone p').textContent = `File selected: ${files[0].name}`;
-          handleImportCsv(files[0]);
-      }
-  });
-  
-  // Corrected Collapsible Logic
-  const collapsibleToggle = document.querySelector('.collapsible-toggle');
-  if (collapsibleToggle) {
-    collapsibleToggle.addEventListener('click', function() {
-        this.classList.toggle('active');
-        const content = this.nextElementSibling;
-        if (content.style.maxHeight) {
-            content.style.maxHeight = null;
-        } else {
-            content.style.maxHeight = content.scrollHeight + "px";
-        }
-    });
-  }
-
+  // Check for existing token on page load to auto-login
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {
       initializeApp();

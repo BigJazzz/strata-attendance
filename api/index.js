@@ -57,7 +57,7 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
     let transaction;
     try {
         const parsed = Papa.parse(csvData, { header: false, skipEmptyLines: true });
-        const rows = parsed.data.slice(1); // Skip header row
+        const rows = parsed.data.slice(1);
 
         if (rows.length === 0) {
             return res.status(400).json({ error: 'CSV file contains no data rows.' });
@@ -66,18 +66,15 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
         transaction = await db.transaction('write');
 
         for (const row of rows) {
-            const sp_number = row[0];        // Column A
-            const lot_number = row[2];       // Column C
-            const unit_number = row[3];      // Column D
-            const name_on_title = row[5];    // Column F
-            const main_contact_name = row[6];// Column G
-            const levy_entitlement = parseInt(row[23], 10) || 0; // Column X
+            const sp_number = row[0];
+            const lot_number = row[2];
+            const unit_number = row[3];
+            const name_on_title = row[5] || ''; // Column F
+            const main_contact_name = row[6] || ''; // Column G
+            const levy_entitlement = parseInt(row[23], 10) || 0;
 
             if (!sp_number || !lot_number) continue;
 
-            const owner_names = main_contact_name || name_on_title || 'Unknown Owner';
-
-            // Find or Create Strata Plan ID
             let plan_id;
             const planResult = await transaction.execute({
                 sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
@@ -94,17 +91,18 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
                 plan_id = newPlanResult.rows[0][0];
             }
 
-            // Upsert (Insert or Update) data into the strata_owners table
+            // Updated SQL to match the new schema
             await transaction.execute({
                 sql: `
-                    INSERT INTO strata_owners (plan_id, lot_number, unit_number, owner_names, levy_entitlement)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO strata_owners (plan_id, lot_number, unit_number, name_on_title, main_contact_name, levy_entitlement)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     ON CONFLICT(plan_id, lot_number) DO UPDATE SET
                         unit_number = excluded.unit_number,
-                        owner_names = excluded.owner_names,
+                        name_on_title = excluded.name_on_title,
+                        main_contact_name = excluded.main_contact_name,
                         levy_entitlement = excluded.levy_entitlement;
                 `,
-                args: [plan_id, lot_number, unit_number, owner_names, levy_entitlement],
+                args: [plan_id, lot_number, unit_number, name_on_title, main_contact_name, levy_entitlement],
             });
         }
 

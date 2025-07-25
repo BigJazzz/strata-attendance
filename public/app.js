@@ -48,16 +48,14 @@ async function handlePlanChange(event) {
     document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
     
     try {
-        // The new flow starts by asking for meeting details, including the date
         const newMeetingData = await showMeetingModal();
         if (!newMeetingData) {
-            strataPlanSelect.value = ''; // Deselect if user cancels the modal
+            strataPlanSelect.value = '';
             return;
         }
 
         const { meetingDate, meetingType, quorumTotal } = newMeetingData;
 
-        // 1. Check if a meeting exists for the selected date
         const meetingCheck = await apiGet(`/api/meetings/${spNumber}/${meetingDate}`);
         let meetingDetails;
 
@@ -65,7 +63,6 @@ async function handlePlanChange(event) {
             meetingDetails = meetingCheck.meeting;
             showToast(`Resuming meeting: ${meetingDetails.meeting_type}`, 'info');
         } else {
-            // 2. If no meeting exists, create the one defined in the modal
             await apiPost('/api/meetings', { spNumber, meetingDate, meetingType, quorumTotal });
             meetingDetails = {
                 meeting_type: meetingType,
@@ -74,14 +71,12 @@ async function handlePlanChange(event) {
             showToast('New meeting started!', 'success');
         }
 
-        // 3. Update the UI with the meeting title and formatted date
         const formattedDate = new Date(meetingDate + 'T00:00:00').toLocaleDateString('en-AU', {
             day: 'numeric', month: 'long', year: 'numeric'
         });
         document.getElementById('meeting-title').textContent = `${meetingDetails.meeting_type} - SP ${spNumber}`;
         document.getElementById('meeting-date').textContent = formattedDate;
 
-        // 4. Load owner data for the check-in form
         const cachedData = localStorage.getItem(`strata_${spNumber}`);
         if (cachedData) {
             strataPlanCache = JSON.parse(cachedData);
@@ -263,16 +258,19 @@ document.addEventListener('DOMContentLoaded', () => {
       }
   });
   
-  // Collapsible Logic
-  document.querySelector('.collapsible-toggle').addEventListener('click', function() {
-      this.classList.toggle('active');
-      const content = this.nextElementSibling;
-      if (content.style.maxHeight) {
-          content.style.maxHeight = null;
-      } else {
-          content.style.maxHeight = content.scrollHeight + "px";
-      }
-  });
+  // Corrected Collapsible Logic
+  const collapsibleToggle = document.querySelector('.collapsible-toggle');
+  if (collapsibleToggle) {
+    collapsibleToggle.addEventListener('click', function() {
+        this.classList.toggle('active');
+        const content = this.nextElementSibling;
+        if (content.style.maxHeight) {
+            content.style.maxHeight = null;
+        } else {
+            content.style.maxHeight = content.scrollHeight + "px";
+        }
+    });
+  }
 
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {

@@ -100,7 +100,9 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
   }
 });
 
-// NEW ENDPOINT for fetching users
+// --- User Management Endpoints (Admin Only, except for password change) ---
+
+// Get all users
 app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const db = getDb();
@@ -109,6 +111,107 @@ app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     } catch (err) {
         console.error('[GET USERS ERROR]', err);
         res.status(500).json({ error: 'Failed to fetch users.' });
+    }
+});
+
+// Add a new user
+app.post('/api/users', authenticate, isAdmin, async (req, res) => {
+    const { username, password, role, spAccess } = req.body;
+    if (!username || !password || !role) {
+        return res.status(400).json({ error: 'Username, password, and role are required.' });
+    }
+    try {
+        const db = getDb();
+        const password_hash = hashPassword(password);
+        await db.execute({
+            sql: 'INSERT INTO users (username, password_hash, role, plan_id) VALUES (?, ?, ?, ?)',
+            args: [username, password_hash, role, spAccess || null]
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[ADD USER ERROR]', err);
+        res.status(500).json({ error: 'Failed to add user. Username may already exist.' });
+    }
+});
+
+// Remove a user
+app.delete('/api/users/:username', authenticate, isAdmin, async (req, res) => {
+    const { username } = req.params;
+    if (username === req.user.username) {
+        return res.status(400).json({ error: 'Cannot remove yourself.' });
+    }
+    try {
+        const db = getDb();
+        await db.execute({
+            sql: 'DELETE FROM users WHERE username = ?',
+            args: [username]
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[DELETE USER ERROR]', err);
+        res.status(500).json({ error: 'Failed to remove user.' });
+    }
+});
+
+// Change own password (Authenticated)
+app.patch('/api/users/:username/password', authenticate, async (req, res) => {
+    const { username } = req.params;
+    const { newPassword } = req.body;
+
+    // Ensure users can only change their own password
+    if (username !== req.user.username) {
+        return res.status(403).json({ error: 'Forbidden: You can only change your own password.' });
+    }
+    if (!newPassword) {
+        return res.status(400).json({ error: 'New password is required.' });
+    }
+
+    try {
+        const db = getDb();
+        const password_hash = hashPassword(newPassword);
+        await db.execute({
+            sql: 'UPDATE users SET password_hash = ? WHERE username = ?',
+            args: [password_hash, username]
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[CHANGE PASSWORD ERROR]', err);
+        res.status(500).json({ error: 'Failed to change password.' });
+    }
+});
+
+// Update a user's SP access (Admin Only)
+app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) => {
+    const { username } = req.params;
+    const { plan_id } = req.body;
+    try {
+        const db = getDb();
+        await db.execute({
+            sql: 'UPDATE users SET plan_id = ? WHERE username = ?',
+            args: [plan_id, username]
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[UPDATE SP ACCESS ERROR]', err);
+        res.status(500).json({ error: 'Failed to update SP access.' });
+    }
+});
+
+// Reset a user's password (Admin Only)
+app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (req, res) => {
+    const { username } = req.params;
+    const newPassword = 'Password1'; // Default reset password
+    try {
+        const db = getDb();
+        const password_hash = hashPassword(newPassword);
+        await db.execute({
+            sql: 'UPDATE users SET password_hash = ? WHERE username = ?',
+            args: [password_hash, username]
+        });
+        res.json({ success: true });
+    } catch (err) {
+        console.error('[RESET PASSWORD ERROR]', err);
+        res.status(500).json({ error: 'Failed to reset password.' });
     }
 });
 

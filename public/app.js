@@ -1,146 +1,24 @@
+import {
+  handleLogin,
+  handleLogout,
+  loadUsers,
+  handleAddUser,
+  handleChangePassword,
+  handleChangeSpAccess,
+  handleResetPassword,
+  handleRemoveUser
+} from './auth.js';
+
+import { showModal, clearStrataCache } from './utils.js';
+
 // --- DOM Elements ---
-const loginSection = document.getElementById('login-section');
-const mainAppSection = document.getElementById('main-app');
 const loginForm = document.getElementById('login-form');
-const loginStatus = document.getElementById('login-status');
-const userDisplay = document.getElementById('user-display');
 const logoutBtn = document.getElementById('logout-btn');
-const strataPlanSelect = document.getElementById('strata-plan-select');
-// New Admin elements
 const adminTabBtn = document.getElementById('admin-tab-btn');
-const adminPanel = document.getElementById('admin-panel');
-
-// --- Helper for API calls ---
-function getAuthToken() {
-  return document.cookie
-    .split('; ')
-    .find(row => row.startsWith('authToken='))
-    ?.split('=')[1];
-}
-
-const apiRequest = async (endpoint, method = 'GET', body = null) => {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(getAuthToken() && { 'Authorization': `Bearer ${getAuthToken()}` })
-  };
-
-  const response = await fetch(endpoint, {
-    method,
-    headers,
-    ...(body ? { body: JSON.stringify(body) } : {})
-  });
-
-  if (!response.ok) {
-    let errorMessage = `API request to ${endpoint} failed (${response.status})`;
-    try {
-      const errorData = await response.json();
-      if (errorData.error) errorMessage = errorData.error;
-    } catch (_) {
-      // Fallback to generic message
-    }
-    throw new Error(errorMessage);
-  }
-
-  return response.json();
-};
-
-// --- Main Application Logic ---
-const handleLogin = async (event) => {
-  event.preventDefault();
-  loginStatus.textContent = 'Logging in...';
-
-  const username = document.getElementById('username').value.trim();
-  const password = document.getElementById('password').value;
-
-  if (!username || !password) {
-    loginStatus.textContent = 'Username and password are required.';
-    loginStatus.style.color = 'red';
-    return;
-  }
-
-  try {
-    const result = await apiRequest('/api/login', 'POST', { username, password });
-
-    if (result.success && result.user && result.token) {
-      document.cookie = `authToken=${result.token};max-age=604800;path=/;SameSite=Lax`;
-      sessionStorage.setItem('attendanceUser', JSON.stringify(result.user));
-      showMainApp(result.user);
-    } else {
-      throw new Error(result.error || 'Login failed.');
-    }
-  } catch (error) {
-    console.error('Login failed:', error);
-    loginStatus.textContent = `Login failed: ${error.message}`;
-    loginStatus.style.color = 'red';
-  }
-};
-
-const handleLogout = () => {
-  sessionStorage.removeItem('attendanceUser');
-  document.cookie = 'authToken=; max-age=0; path=/;';
-  showLogin();
-};
-
-// --- Load Available Strata Plans ---
-const populateStrataPlans = async () => {
-  strataPlanSelect.disabled = true;
-  strataPlanSelect.innerHTML = '<option value="">Loading plans...</option>';
-
-  try {
-    const result = await apiRequest('/api/strata-plans');
-
-    if (result.success && result.plans) {
-      strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
-      result.plans.forEach(plan => {
-        const option = document.createElement('option');
-        option.value = plan.sp;
-        option.textContent = `${plan.sp_number} ${plan.suburb}`;
-        strataPlanSelect.appendChild(option);
-      });
-    } else {
-      throw new Error(result.error || 'No plans returned.');
-    }
-  } catch (error) {
-    console.error('Failed to load strata plans:', error);
-    strataPlanSelect.innerHTML = `<option value="">${error.message}</option>`;
-  } finally {
-    strataPlanSelect.disabled = false;
-  }
-};
-
-// --- UI Management ---
-const showMainApp = (user) => {
-  loginSection.classList.add('hidden');
-  mainAppSection.classList.remove('hidden');
-  
-  // There are two user-display elements, one in each tab.
-  document.querySelectorAll('#user-display').forEach(el => {
-    el.textContent = `${user.username} (${user.role})`;
-  });
-
-  // The Admin tab is always visible now.
-  adminTabBtn.classList.remove('hidden');
-
-  // Show/Hide the admin-specific *panel* inside the tab based on user role.
-  if (user.role === 'Admin') {
-    adminPanel.classList.remove('hidden');
-    // We can now call loadUsers from auth.js
-    // Note: We need to import it first.
-    // For now, let's just ensure the panel shows.
-  } else {
-    adminPanel.classList.add('hidden');
-  }
-
-  populateStrataPlans();
-};
-
-const showLogin = () => {
-  mainAppSection.classList.add('hidden');
-  loginSection.classList.remove('hidden');
-  loginStatus.textContent = '';
-  loginStatus.style.color = '';
-  loginForm.reset();
-};
+const changePasswordBtn = document.getElementById('change-password-btn');
+const addUserBtn = document.getElementById('add-user-btn');
+const clearCacheBtn = document.getElementById('clear-cache-btn');
+const userListBody = document.getElementById('user-list-body');
 
 // --- Tab Switching Logic ---
 function openTab(evt, tabName) {
@@ -150,22 +28,66 @@ function openTab(evt, tabName) {
     evt.currentTarget.classList.add('active');
 }
 
+// --- Admin Panel Logic ---
+async function handleClearCache() {
+    const res = await showModal(
+        "Are you sure you want to clear all cached data? This includes unsynced submissions.",
+        { confirmText: 'Yes, Clear Data' }
+    );
+    if (res.confirmed) {
+        clearStrataCache();
+        localStorage.removeItem('submissionQueue');
+        document.cookie = 'selectedSP=; max-age=0; path=/;';
+        location.reload();
+    }
+}
+
+// This function handles the dropdown actions in the user list
+function handleUserActions(e) {
+    if (!e.target.matches('.user-actions-select')) return;
+    
+    const select = e.target;
+    const username = select.dataset.username;
+    const action = select.value;
+
+    // Return if no action is selected
+    if (!action) return;
+
+    switch (action) {
+        case 'change_sp':
+            handleChangeSpAccess(username);
+            break;
+        case 'reset_password':
+            handleResetPassword(username);
+            break;
+        case 'remove':
+            // The remove handler in auth.js is designed to take an event object.
+            // We pass the event object 'e' directly.
+            handleRemoveUser(e);
+            break;
+    }
+}
 
 // --- Initial Load ---
 document.addEventListener('DOMContentLoaded', () => {
+  // Main listeners
   loginForm.addEventListener('submit', handleLogin);
   logoutBtn.addEventListener('click', handleLogout);
 
-  // Add event listeners for tab buttons
+  // Tab listeners
   document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
-  adminTabBtn.addEventListener('click', (e) => openTab(e, 'admin-tab'));
+  adminTabBtn.addEventListener('click', (e) => {
+      openTab(e, 'admin-tab');
+      // Load users when admin tab is opened for the first time
+      const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
+      if (user && user.role === 'Admin') {
+          loadUsers();
+      }
+  });
 
-
-  const userString = sessionStorage.getItem('attendanceUser');
-  if (getAuthToken() && userString) {
-    const user = JSON.parse(userString);
-    showMainApp(user);
-  } else {
-    showLogin();
-  }
+  // Admin panel listeners
+  changePasswordBtn.addEventListener('click', handleChangePassword);
+  addUserBtn.addEventListener('click', handleAddUser);
+  clearCacheBtn.addEventListener('click', handleClearCache);
+  userListBody.addEventListener('change', handleUserActions);
 });

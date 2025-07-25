@@ -2,11 +2,12 @@ import express from 'express';
 import { createClient } from '@libsql/client';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
+import Papa from 'papaparse';
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
-// --- Turso Client Caching ---
+// --- Turso Client Caching & DB Helpers ---
 let cachedDb = null;
 function getDb() {
   if (cachedDb) return cachedDb;
@@ -16,8 +17,8 @@ function getDb() {
   return cachedDb;
 }
 
-// --- Helper to format DB results ---
 function rowsToObjects(result) {
+    if (!result.rows || result.rows.length === 0) return [];
     return result.rows.map(row => {
         const obj = {};
         result.columns.forEach((col, index) => {
@@ -31,14 +32,9 @@ function rowsToObjects(result) {
 function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
   const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Authentication failed: No token provided.' });
-  }
-
+  if (!token) return res.status(401).json({ error: 'Authentication failed: No token provided.' });
   try {
-    const user = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = user;
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch (err) {
     return res.status(403).json({ error: 'Authentication failed: Invalid token.' });
@@ -46,16 +42,84 @@ function authenticate(req, res, next) {
 }
 
 function isAdmin(req, res, next) {
-    if (req.user && req.user.role === 'Admin') {
-        next();
-    } else {
-        return res.status(403).json({ error: 'Forbidden: Admin access required.' });
-    }
+    if (req.user && req.user.role === 'Admin') next();
+    else return res.status(403).json({ error: 'Forbidden: Admin access required.' });
 }
 
-// --- API Endpoints ---
+// --- CSV IMPORT ENDPOINT ---
+app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
+    const { csvData } = req.body;
+    if (!csvData) {
+        return res.status(400).json({ error: 'No CSV data provided.' });
+    }
 
-// User Login
+    const db = getDb();
+    let transaction;
+    try {
+        const parsed = Papa.parse(csvData, { header: false, skipEmptyLines: true });
+        const rows = parsed.data.slice(1); // Skip header row
+
+        if (rows.length === 0) {
+            return res.status(400).json({ error: 'CSV file contains no data rows.' });
+        }
+
+        transaction = await db.transaction('write');
+
+        for (const row of rows) {
+            const sp_number = row[0];        // Column A
+            const lot_number = row[2];       // Column C
+            const unit_number = row[3];      // Column D
+            const name_on_title = row[5];    // Column F
+            const main_contact_name = row[6];// Column G
+            const levy_entitlement = parseInt(row[23], 10) || 0; // Column X
+
+            if (!sp_number || !lot_number) continue;
+
+            const owner_names = main_contact_name || name_on_title || 'Unknown Owner';
+
+            // Find or Create Strata Plan ID
+            let plan_id;
+            const planResult = await transaction.execute({
+                sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
+                args: [sp_number],
+            });
+
+            if (planResult.rows.length > 0) {
+                plan_id = planResult.rows[0][0];
+            } else {
+                const newPlanResult = await transaction.execute({
+                    sql: 'INSERT INTO strata_plans (sp_number, suburb) VALUES (?, ?) RETURNING id',
+                    args: [sp_number, 'Imported'],
+                });
+                plan_id = newPlanResult.rows[0][0];
+            }
+
+            // Upsert (Insert or Update) data into the strata_owners table
+            await transaction.execute({
+                sql: `
+                    INSERT INTO strata_owners (plan_id, lot_number, unit_number, owner_names, levy_entitlement)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(plan_id, lot_number) DO UPDATE SET
+                        unit_number = excluded.unit_number,
+                        owner_names = excluded.owner_names,
+                        levy_entitlement = excluded.levy_entitlement;
+                `,
+                args: [plan_id, lot_number, unit_number, owner_names, levy_entitlement],
+            });
+        }
+
+        await transaction.commit();
+        res.json({ success: true, message: `Successfully imported/updated ${rows.length} records.` });
+
+    } catch (err) {
+        if (transaction) await transaction.rollback();
+        console.error('[IMPORT ERROR]', err);
+        res.status(500).json({ error: `An error occurred during import: ${err.message}` });
+    }
+});
+
+
+// --- Existing API Endpoints ---
 app.post('/api/login', async (req, res) => {
   try {
     const db = getDb();
@@ -94,7 +158,6 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Get All Strata Plans
 app.get('/api/strata-plans', authenticate, async (req, res) => {
   try {
     const db = getDb();
@@ -107,10 +170,6 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
   }
 });
 
-
-// --- User Management Endpoints ---
-
-// Get All Users
 app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const db = getDb();
@@ -123,7 +182,6 @@ app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     }
 });
 
-// Add a New User
 app.post('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const { username, password, role, spAccess } = req.body;
@@ -143,7 +201,7 @@ app.post('/api/users', authenticate, isAdmin, async (req, res) => {
             });
 
             if (planResult.rows.length === 0) return res.status(400).json({ error: `Strata Plan with number ${spAccess} not found.` });
-            plan_id = planResult.rows[0][0]; // ID is in the first column of the first row
+            plan_id = planResult.rows[0][0];
         }
 
         const salt = bcrypt.genSaltSync(10);
@@ -165,7 +223,6 @@ app.post('/api/users', authenticate, isAdmin, async (req, res) => {
     }
 });
 
-// Delete a User
 app.delete('/api/users/:username', authenticate, isAdmin, async (req, res) => {
     try {
         const { username } = req.params;
@@ -183,7 +240,6 @@ app.delete('/api/users/:username', authenticate, isAdmin, async (req, res) => {
     }
 });
 
-// Change User's Own Password
 app.patch('/api/users/:username/password', authenticate, async (req, res) => {
     try {
         const { username } = req.params;
@@ -208,7 +264,6 @@ app.patch('/api/users/:username/password', authenticate, async (req, res) => {
     }
 });
 
-// Update a User's Plan Access (Admin only)
 app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) => {
     try {
         const { username } = req.params;
@@ -236,7 +291,6 @@ app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) =
     }
 });
 
-// Reset a User's Password (Admin only)
 app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (req, res) => {
     try {
         const { username } = req.params;
@@ -258,8 +312,6 @@ app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (re
     }
 });
 
-
-// --- Global JSON Error Handler ---
 app.use((err, req, res, next) => {
   console.error('[GLOBAL ERROR]', err);
   res.status(500).json({ error: `Server encountered an error: ${err.message}` });

@@ -6,13 +6,13 @@ import {
   handleChangePassword,
   handleChangeSpAccess,
   handleResetPassword,
-  handleRemoveUser
+  handleRemoveUser,
+  handleImportCsv
 } from './auth.js';
 
 import { showModal, clearStrataCache, apiGet } from './utils.js';
 import { renderStrataPlans } from './ui.js';
 
-// --- DOM Elements ---
 const loginForm = document.getElementById('login-form');
 const logoutBtn = document.getElementById('logout-btn');
 const adminTabBtn = document.getElementById('admin-tab-btn');
@@ -24,8 +24,8 @@ const loginSection = document.getElementById('login-section');
 const mainApp = document.getElementById('main-app');
 const userDisplay = document.getElementById('user-display');
 const adminPanel = document.getElementById('admin-panel');
-
-// --- UI & App Initialization ---
+const importCsvBtn = document.getElementById('import-csv-btn');
+const csvFileInput = document.getElementById('csv-file-input');
 
 function openTab(evt, tabName) {
     document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
@@ -46,7 +46,6 @@ async function initializeApp() {
         }
     }
     
-    // Fetch and render strata plans
     try {
         const data = await apiGet('/strata-plans');
         if (data.success) {
@@ -60,8 +59,6 @@ async function initializeApp() {
         document.getElementById('strata-plan-select').innerHTML = '<option value="">Error loading plans</option>';
     }
 }
-
-// --- Admin Panel & Other Logic ---
 
 async function handleClearCache() {
     const res = await showModal(
@@ -96,15 +93,13 @@ function handleUserActions(e) {
             handleRemoveUser(e);
             break;
     }
-    select.value = ""; // Reset dropdown after action
+    select.value = "";
 }
-
-// --- Initial Load & Event Listeners ---
 
 document.addEventListener('DOMContentLoaded', () => {
   loginForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const loginResult = await handleLogin(e); // Pass the event to handleLogin
+    const loginResult = await handleLogin(e);
     if (loginResult && loginResult.success) {
         initializeApp();
     }
@@ -126,7 +121,10 @@ document.addEventListener('DOMContentLoaded', () => {
   clearCacheBtn.addEventListener('click', handleClearCache);
   userListBody.addEventListener('change', handleUserActions);
   
-  // Check if already logged in (e.g., page refresh)
+  importCsvBtn.addEventListener('click', () => {
+      handleImportCsv(csvFileInput.files[0]);
+  });
+
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {
       initializeApp();

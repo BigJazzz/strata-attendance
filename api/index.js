@@ -67,8 +67,9 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Missing credentials.' });
     }
 
+    // CORRECTED: Using explicit AS aliases to guarantee property names
     const result = await db.execute({
-      sql: 'SELECT id, username, password_hash, role, plan_id FROM users WHERE username = ?',
+      sql: 'SELECT id, username, password_hash AS passwordHash, role, plan_id AS planId FROM users WHERE username = ?',
       args: [username]
     });
 
@@ -80,18 +81,20 @@ app.post('/api/login', async (req, res) => {
     // Hash the incoming password and compare it to the stored hash
     const hashed = hashPassword(password);
 
-    if (row.password_hash !== hashed) {
+    // Use the guaranteed property name 'passwordHash'
+    if (row.passwordHash !== hashed) {
         return res.status(401).json({ error: 'Invalid username or password.' });
     }
     
-    const { id, role, plan_id } = row;
+    // Use the guaranteed property names 'role' and 'planId'
+    const { id, role, planId } = row;
 
-    const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id, username, role, plan_id: planId }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
       success: true,
       token,
-      user: { username, role, spAccess: plan_id }
+      user: { username, role, spAccess: planId }
     });
 
   } catch (err) {
@@ -120,7 +123,7 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
 app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const db = getDb();
-        const result = await db.execute('SELECT username, role, plan_id FROM users');
+        const result = await db.execute('SELECT username, role, plan_id AS planId FROM users');
         res.json({ success: true, users: result.rows });
     } catch (err) {
         console.error('[GET USERS ERROR]', err);

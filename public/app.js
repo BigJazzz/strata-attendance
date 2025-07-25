@@ -19,6 +19,11 @@ const changePasswordBtn = document.getElementById('change-password-btn');
 const addUserBtn = document.getElementById('add-user-btn');
 const clearCacheBtn = document.getElementById('clear-cache-btn');
 const userListBody = document.getElementById('user-list-body');
+const loginSection = document.getElementById('login-section');
+const mainApp = document.getElementById('main-app');
+const userDisplay = document.getElementById('user-display');
+const adminPanel = document.getElementById('admin-panel');
+
 
 // --- Tab Switching Logic ---
 function openTab(evt, tabName) {
@@ -71,7 +76,22 @@ function handleUserActions(e) {
 // --- Initial Load ---
 document.addEventListener('DOMContentLoaded', () => {
   // Main listeners
-  loginForm.addEventListener('submit', handleLogin);
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const loginResult = await handleLogin();
+    if (loginResult && loginResult.success) {
+        loginSection.classList.add('hidden');
+        mainApp.classList.remove('hidden');
+        
+        const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
+        if (user) {
+            userDisplay.textContent = user.username;
+            if (user.role === 'Admin') {
+                adminPanel.classList.remove('hidden');
+            }
+        }
+    }
+  });
   logoutBtn.addEventListener('click', handleLogout);
 
   // Tab listeners

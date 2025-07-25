@@ -69,8 +69,8 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
             const sp_number = row[0];
             const lot_number = row[2];
             const unit_number = row[3];
-            const name_on_title = row[5] || ''; // Column F
-            const main_contact_name = row[6] || ''; // Column G
+            const name_on_title = row[5] || '';         // Column F
+            const main_contact_name = row[6] || '';     // Column G
             const levy_entitlement = parseInt(row[23], 10) || 0;
 
             if (!sp_number || !lot_number) continue;
@@ -91,7 +91,7 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
                 plan_id = newPlanResult.rows[0][0];
             }
 
-            // Updated SQL to match the new schema
+            // Corrected SQL to match the final schema
             await transaction.execute({
                 sql: `
                     INSERT INTO strata_owners (plan_id, lot_number, unit_number, name_on_title, main_contact_name, levy_entitlement)

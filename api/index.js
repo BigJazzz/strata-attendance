@@ -108,7 +108,7 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
 app.get('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const db = getDb();
-        const result = await db.execute('SELECT username, role, plan_id FROM users');
+        const result = await db.execute('SELECT u.username, u.role, sp.sp_number as spAccess FROM users u LEFT JOIN strata_plans sp ON u.plan_id = sp.id');
         res.json({ success: true, users: result.rows });
     } catch (err) {
         console.error('[GET USERS ERROR]', err);
@@ -120,17 +120,30 @@ app.get('/api/users', authenticate, isAdmin, async (req, res) => {
 app.post('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const { username, password, role, spAccess } = req.body;
+        const db = getDb();
 
         if (!username || !password || !role) {
             return res.status(400).json({ error: 'Username, password, and role are required.' });
         }
-        if (role === 'User' && !spAccess) {
-            return res.status(400).json({ error: 'SP Access is required for the User role.' });
+        
+        let plan_id = null;
+        if (role === 'User') {
+            if (!spAccess) {
+                return res.status(400).json({ error: 'SP Access is required for the User role.' });
+            }
+            // Find the strata plan's ID from the sp_number (spAccess)
+            const planResult = await db.execute({
+                sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
+                args: [spAccess]
+            });
+
+            if (planResult.rows.length === 0) {
+                return res.status(400).json({ error: `Strata Plan with number ${spAccess} not found.` });
+            }
+            plan_id = planResult.rows[0].id;
         }
 
-        const db = getDb();
         const password_hash = hashPassword(password);
-        const plan_id = role === 'Admin' ? null : spAccess;
 
         await db.execute({
             sql: 'INSERT INTO users (username, password_hash, role, plan_id) VALUES (?, ?, ?, ?)',
@@ -173,7 +186,6 @@ app.patch('/api/users/:username/password', authenticate, async (req, res) => {
         const { username } = req.params;
         const { newPassword } = req.body;
 
-        // Ensure users can only change their own password
         if (username !== req.user.username) {
             return res.status(403).json({ error: 'Forbidden: You can only change your own password.' });
         }
@@ -200,11 +212,25 @@ app.patch('/api/users/:username/password', authenticate, async (req, res) => {
 app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) => {
     try {
         const { username } = req.params;
-        const { plan_id } = req.body;
+        // The frontend sends the SP Number, not the ID.
+        const { plan_id: spNumber } = req.body; 
         const db = getDb();
+        
+        let newPlanId = null;
+        if (spNumber) {
+            const planResult = await db.execute({
+                sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
+                args: [spNumber]
+            });
+            if (planResult.rows.length === 0) {
+                 return res.status(400).json({ error: `Strata Plan with number ${spNumber} not found.`});
+            }
+            newPlanId = planResult.rows[0].id;
+        }
+
         await db.execute({
             sql: 'UPDATE users SET plan_id = ? WHERE username = ?',
-            args: [plan_id, username]
+            args: [newPlanId, username]
         });
         res.json({ success: true, message: 'Plan access updated.' });
     } catch (err) {
@@ -217,8 +243,6 @@ app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) =
 app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (req, res) => {
     try {
         const { username } = req.params;
-        // For simplicity, we'll reset it to a known password. 
-        // In a real-world app, you might generate a random one and email it.
         const defaultPassword = 'Password123!';
         const password_hash = hashPassword(defaultPassword);
         const db = getDb();
@@ -234,6 +258,7 @@ app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (re
         res.status(500).json({ error: 'Failed to reset password.' });
     }
 });
+
 
 // --- Global JSON Error Handler ---
 app.use((err, req, res, next) => {

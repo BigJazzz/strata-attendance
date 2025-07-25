@@ -2,6 +2,7 @@ import express from 'express';
 import { createClient } from '@libsql/client';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 
 const app = express();
 app.use(express.json());
@@ -12,7 +13,6 @@ function getDb() {
   if (cachedDb) return cachedDb;
   const url = process.env.TURSO_DATABASE_URL;
   const token = process.env.TURSO_AUTH_TOKEN;
-  // Using remoteOnly for better compatibility in serverless environments
   cachedDb = createClient({ url, authToken: token, remoteOnly: true });
   return cachedDb;
 }
@@ -28,7 +28,7 @@ function authenticate(req, res, next) {
 
   try {
     const user = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = user; // Add user payload to the request object
+    req.user = user;
     next();
   } catch (err) {
     return res.status(403).json({ error: 'Authentication failed: Invalid token.' });
@@ -36,17 +36,11 @@ function authenticate(req, res, next) {
 }
 
 function isAdmin(req, res, next) {
-    // This middleware must run *after* the authenticate middleware
     if (req.user && req.user.role === 'Admin') {
         next();
     } else {
         return res.status(403).json({ error: 'Forbidden: Admin access required.' });
     }
-}
-
-
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(password).digest('hex');
 }
 
 // --- API Endpoints ---
@@ -60,19 +54,17 @@ app.post('/api/login', async (req, res) => {
       return res.status(400).json({ error: 'Missing credentials.' });
     }
 
-    const hashed = hashPassword(password);
     const result = await db.execute({
       sql: 'SELECT id, username, password_hash, role, plan_id FROM users WHERE username = ?',
       args: [username]
     });
 
     const row = result.rows[0];
-    if (!row || row.password_hash !== hashed) {
+    if (!row || !bcrypt.compareSync(password, row.password_hash)) { // <-- Use bcrypt.compareSync
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
     
     const { id, role, plan_id } = row;
-
     const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     res.json({
@@ -91,9 +83,7 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/strata-plans', authenticate, async (req, res) => {
   try {
     const db = getDb();
-    const result = await db.execute(
-      'SELECT sp_number, suburb FROM strata_plans ORDER BY sp_number'
-    );
+    const result = await db.execute('SELECT sp_number, suburb FROM strata_plans ORDER BY sp_number');
     res.json({ success: true, plans: result.rows });
   } catch (err) {
     console.error('[STRATA PLANS ERROR]', err);
@@ -102,7 +92,7 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
 });
 
 
-// --- User Management Endpoints (Admin) ---
+// --- User Management Endpoints ---
 
 // Get All Users
 app.get('/api/users', authenticate, isAdmin, async (req, res) => {
@@ -128,22 +118,19 @@ app.post('/api/users', authenticate, isAdmin, async (req, res) => {
         
         let plan_id = null;
         if (role === 'User') {
-            if (!spAccess) {
-                return res.status(400).json({ error: 'SP Access is required for the User role.' });
-            }
-            // Find the strata plan's ID from the sp_number (spAccess)
+            if (!spAccess) return res.status(400).json({ error: 'SP Access is required for the User role.' });
+            
             const planResult = await db.execute({
                 sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
                 args: [spAccess]
             });
 
-            if (planResult.rows.length === 0) {
-                return res.status(400).json({ error: `Strata Plan with number ${spAccess} not found.` });
-            }
+            if (planResult.rows.length === 0) return res.status(400).json({ error: `Strata Plan with number ${spAccess} not found.` });
             plan_id = planResult.rows[0].id;
         }
 
-        const password_hash = hashPassword(password);
+        const salt = bcrypt.genSaltSync(10);
+        const password_hash = bcrypt.hashSync(password, salt); // <-- Use bcrypt.hashSync
 
         await db.execute({
             sql: 'INSERT INTO users (username, password_hash, role, plan_id) VALUES (?, ?, ?, ?)',
@@ -165,9 +152,8 @@ app.post('/api/users', authenticate, isAdmin, async (req, res) => {
 app.delete('/api/users/:username', authenticate, isAdmin, async (req, res) => {
     try {
         const { username } = req.params;
-        if (username === req.user.username) {
-            return res.status(400).json({ error: 'Cannot delete your own user account.' });
-        }
+        if (username === req.user.username) return res.status(400).json({ error: 'Cannot delete your own user account.' });
+        
         const db = getDb();
         await db.execute({
             sql: 'DELETE FROM users WHERE username = ?',
@@ -186,15 +172,12 @@ app.patch('/api/users/:username/password', authenticate, async (req, res) => {
         const { username } = req.params;
         const { newPassword } = req.body;
 
-        if (username !== req.user.username) {
-            return res.status(403).json({ error: 'Forbidden: You can only change your own password.' });
-        }
-        if (!newPassword) {
-            return res.status(400).json({ error: 'New password is required.' });
-        }
+        if (username !== req.user.username) return res.status(403).json({ error: 'Forbidden: You can only change your own password.' });
+        if (!newPassword) return res.status(400).json({ error: 'New password is required.' });
         
         const db = getDb();
-        const password_hash = hashPassword(newPassword);
+        const salt = bcrypt.genSaltSync(10);
+        const password_hash = bcrypt.hashSync(newPassword, salt); // <-- Use bcrypt.hashSync
 
         await db.execute({
             sql: 'UPDATE users SET password_hash = ? WHERE username = ?',
@@ -212,7 +195,6 @@ app.patch('/api/users/:username/password', authenticate, async (req, res) => {
 app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) => {
     try {
         const { username } = req.params;
-        // The frontend sends the SP Number, not the ID.
         const { plan_id: spNumber } = req.body; 
         const db = getDb();
         
@@ -222,9 +204,7 @@ app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) =
                 sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
                 args: [spNumber]
             });
-            if (planResult.rows.length === 0) {
-                 return res.status(400).json({ error: `Strata Plan with number ${spNumber} not found.`});
-            }
+            if (planResult.rows.length === 0) return res.status(400).json({ error: `Strata Plan with number ${spNumber} not found.`});
             newPlanId = planResult.rows[0].id;
         }
 
@@ -244,7 +224,9 @@ app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (re
     try {
         const { username } = req.params;
         const defaultPassword = 'Password123!';
-        const password_hash = hashPassword(defaultPassword);
+        
+        const salt = bcrypt.genSaltSync(10);
+        const password_hash = bcrypt.hashSync(defaultPassword, salt); // <-- Use bcrypt.hashSync
         const db = getDb();
 
         await db.execute({

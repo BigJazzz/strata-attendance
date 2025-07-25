@@ -122,12 +122,16 @@
                         <hr style="margin: 2rem 0;">
                         <h3>Admin Panel</h3>
                         
-                        <div id="csv-drop-zone" class="drop-zone">
-                            <h4>Import Strata Data from CSV</h4>
-                            <p>Drop a CSV file here, or click to select.</p>
-                            <input type="file" id="csv-file-input" accept=".csv" class="hidden">
-                            <button type="button" id="import-csv-btn">Import Data</button>
-                            <p id="import-status"></p>
+                        <div class="collapsible">
+                            <button type="button" class="collapsible-toggle">Import Strata Data from CSV</button>
+                            <div class="collapsible-content">
+                                <div id="csv-drop-zone" class="drop-zone">
+                                    <p>Drop a CSV file here, or click to select.</p>
+                                    <input type="file" id="csv-file-input" accept=".csv" class="hidden">
+                                    <button type="button" id="import-csv-btn">Import Data</button>
+                                    <p id="import-status"></p>
+                                </div>
+                            </div>
                         </div>
                         <hr style="margin: 2rem 0;">
 

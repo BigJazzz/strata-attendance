@@ -70,7 +70,7 @@ app.post('/api/login', async (req, res) => {
     // Using explicit AS aliases to guarantee property names
     const result = await db.execute({
       sql: 'SELECT id, username, password_hash AS passwordHash, role, plan_id AS planId FROM users WHERE username = ?',
-      aargs: [username]
+      args: [username]
     });
 
     const row = result.rows[0];

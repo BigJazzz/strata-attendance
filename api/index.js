@@ -46,9 +46,112 @@ function isAdmin(req, res, next) {
     else return res.status(403).json({ error: 'Forbidden: Admin access required.' });
 }
 
-// --- API Endpoints ---
+// --- NEW Meeting Endpoints ---
+app.get('/api/meetings/:spNumber/today', authenticate, async (req, res) => {
+    try {
+        const { spNumber } = req.params;
+        const db = getDb();
+        const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
 
-// Corrected Strata Plans Endpoint
+        const result = await db.execute({
+            sql: `SELECT m.meeting_type, m.quorum_total 
+                  FROM meetings m
+                  JOIN strata_plans sp ON m.plan_id = sp.id
+                  WHERE sp.sp_number = ? AND m.meeting_date = ?`,
+            args: [spNumber, today],
+        });
+
+        if (result.rows.length > 0) {
+            res.json({ success: true, meeting: rowsToObjects(result)[0] });
+        } else {
+            res.json({ success: false, message: 'No meeting found for today.' });
+        }
+    } catch (err) {
+        console.error('[GET MEETING ERROR]', err);
+        res.status(500).json({ error: 'Failed to check for meeting.' });
+    }
+});
+
+app.post('/api/meetings', authenticate, async (req, res) => {
+    try {
+        const { spNumber, meetingType, quorumTotal } = req.body;
+        if (!spNumber || !meetingType || !quorumTotal) {
+            return res.status(400).json({ error: 'Missing meeting details.' });
+        }
+
+        const db = getDb();
+        const today = new Date().toISOString().slice(0, 10);
+
+        const planResult = await db.execute({
+            sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
+            args: [spNumber],
+        });
+
+        if (planResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Strata plan not found.' });
+        }
+        const plan_id = planResult.rows[0][0];
+
+        await db.execute({
+            sql: 'INSERT INTO meetings (plan_id, meeting_date, meeting_type, quorum_total) VALUES (?, ?, ?, ?)',
+            args: [plan_id, today, meetingType, quorumTotal],
+        });
+
+        res.status(201).json({ success: true, message: 'Meeting created successfully.' });
+
+    } catch (err) {
+        if (err.message && err.message.includes('UNIQUE constraint failed')) {
+            return res.status(409).json({ error: 'A meeting for this plan already exists today.' });
+        }
+        console.error('[CREATE MEETING ERROR]', err);
+        res.status(500).json({ error: 'Failed to create meeting.' });
+    }
+});
+
+
+// --- Existing API Endpoints ---
+// ... (The rest of your api/index.js file remains unchanged)
+// ...
+// --- Login
+app.post('/api/login', async (req, res) => {
+  try {
+    const db = getDb();
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Missing credentials.' });
+    }
+
+    const result = await db.execute({
+      sql: 'SELECT id, username, password_hash, role, plan_id FROM users WHERE username = ?',
+      args: [username]
+    });
+
+    if (result.rows.length === 0) {
+        return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+
+    const userObject = rowsToObjects(result)[0];
+
+    if (!bcrypt.compareSync(password, userObject.password_hash)) {
+      return res.status(401).json({ error: 'Invalid username or password.' });
+    }
+    
+    const { id, role, plan_id } = userObject;
+    const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+    res.json({
+      success: true,
+      token,
+      user: { username, role, spAccess: plan_id }
+    });
+
+  } catch (err) {
+    console.error('[LOGIN ERROR]', err);
+    res.status(500).json({ error: 'Internal server error during login.' });
+  }
+});
+
+// Get All Strata Plans
 app.get('/api/strata-plans', authenticate, async (req, res) => {
   try {
     const db = getDb();
@@ -66,11 +169,12 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
 
     const plans = rowsToObjects(result);
     res.json({ success: true, plans });
-  } catch (err) { // <-- The underscore has been removed here
+  } catch (err) {
     console.error('[STRATA PLANS ERROR]', err);
     res.status(500).json({ error: `Could not load strata plans: ${err.message}` });
   }
 });
+
 
 // Get Owners Endpoint
 app.get('/api/strata-plans/:planId/owners', authenticate, async (req, res) => {
@@ -168,45 +272,6 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
         console.error('[IMPORT ERROR]', err);
         res.status(500).json({ error: `An error occurred during import: ${err.message}` });
     }
-});
-
-// Login Endpoint
-app.post('/api/login', async (req, res) => {
-  try {
-    const db = getDb();
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Missing credentials.' });
-    }
-
-    const result = await db.execute({
-      sql: 'SELECT id, username, password_hash, role, plan_id FROM users WHERE username = ?',
-      args: [username]
-    });
-
-    if (result.rows.length === 0) {
-        return res.status(401).json({ error: 'Invalid username or password.' });
-    }
-
-    const userObject = rowsToObjects(result)[0];
-
-    if (!bcrypt.compareSync(password, userObject.password_hash)) {
-      return res.status(401).json({ error: 'Invalid username or password.' });
-    }
-    
-    const { id, role, plan_id } = userObject;
-    const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-
-    res.json({
-      success: true,
-      token,
-      user: { username, role, spAccess: plan_id }
-    });
-
-  } catch (err) {
-    console.error('[LOGIN ERROR]', err);
-    res.status(500).json({ error: 'Internal server error during login.' });
-  }
 });
 
 // User Management Endpoints
@@ -352,7 +417,6 @@ app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (re
     }
 });
 
-// Global Error Handler
 app.use((err, req, res, next) => {
   console.error('[GLOBAL ERROR]', err);
   res.status(500).json({ error: `Server encountered an error: ${err.message}` });

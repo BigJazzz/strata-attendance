@@ -55,10 +55,15 @@ async function handlePlanChange(event) {
             const data = await apiGet(`/strata-plans/${spNumber}/owners`);
             if (!data.success) throw new Error(data.error);
 
-            strataPlanCache = data.owners.reduce((acc, owner) => {
-                acc[owner.lot_number] = [owner.main_contact_name, owner.name_on_title, owner.unit_number];
-                return acc;
-            }, {});
+            // Corrected Logic: Ensure data.owners is an array before using .reduce()
+            if (Array.isArray(data.owners)) {
+                strataPlanCache = data.owners.reduce((acc, owner) => {
+                    acc[owner.lot_number] = [owner.main_contact_name, owner.name_on_title, owner.unit_number];
+                    return acc;
+                }, {});
+            } else {
+                strataPlanCache = {}; // Default to an empty object if no owners are returned
+            }
             
             localStorage.setItem(`strata_${spNumber}`, JSON.stringify(strataPlanCache));
         }
@@ -99,11 +104,10 @@ async function initializeApp() {
         if (data.success) {
             renderStrataPlans(data.plans);
             
-            // If user is not an admin and has an assigned plan, auto-select it
             if (user.role !== 'Admin' && data.plans.length === 1) {
                 strataPlanSelect.value = data.plans[0].sp_number;
-                strataPlanSelect.disabled = true; // Lock the dropdown
-                strataPlanSelect.dispatchEvent(new Event('change')); // Trigger data load
+                strataPlanSelect.disabled = true;
+                strataPlanSelect.dispatchEvent(new Event('change'));
             } else {
                 strataPlanSelect.disabled = false;
             }
@@ -116,7 +120,6 @@ async function initializeApp() {
     }
 }
 
-// ... (Rest of the file remains the same) 
 // --- Admin Panel & Other Logic ---
 async function handleClearCache() {
     const res = await showModal(

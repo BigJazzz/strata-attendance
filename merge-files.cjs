@@ -2,18 +2,28 @@ const fs = require('fs');
 const path = require('path');
 
 const outputFile = 'copilot.md';
-const language = 'plaintext'; // Change this as needed
 
-// Files or folders to exclude (relative to root)
+// Maps file extensions to language tags
+const extensionToLanguage = {
+  '.js': 'javascript',
+  '.ts': 'typescript',
+  '.json': 'json',
+  '.md': 'markdown',
+  '.sh': 'bash',
+  '.html': 'html',
+  '.css': 'css',
+  '.py': 'python',
+  '.txt': 'plaintext'
+};
+
+// Files or folders to exclude
 const exclude = [
   'node_modules',
   '.git',
   '.github',
-  'merged.md',
   'README.md',
   'package-lock.json',
   'password.js',
-  'copilot.md',
   'favicon.ico',
   '.gitignore',
   'package.json',
@@ -38,11 +48,20 @@ function getAllFiles(dirPath, arrayOfFiles = []) {
   return arrayOfFiles;
 }
 
+function getLanguageTag(filePath) {
+  const ext = path.extname(filePath);
+  return extensionToLanguage[ext] || 'plaintext';
+}
+
+// Clear the output file
+fs.writeFileSync(outputFile, '');
+
 const allFiles = getAllFiles('./');
 const markdownSections = allFiles.map(file => {
   const content = fs.readFileSync(file, 'utf8');
+  const language = getLanguageTag(file);
   return `## ${file}\n\`\`\`${language}\n${content}\n\`\`\`\n`;
 });
 
 fs.writeFileSync(outputFile, markdownSections.join('\n'));
-console.log(`✅ Merged ${allFiles.length} files into ${outputFile}`);
+console.log(`Merged ${allFiles.length} files into ${outputFile}`);

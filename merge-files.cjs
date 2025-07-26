@@ -27,8 +27,7 @@ const exclude = [
   'favicon.ico',
   '.gitignore',
   'package.json',
-  'merge-files.cjs',
-  outputFile
+  'merge-files.cjs'
 ];
 
 function shouldExclude(filePath) {

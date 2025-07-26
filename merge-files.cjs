@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const outputFile = 'merged.md';
+const outputFile = 'copilot.md';
 const language = 'plaintext'; // Change this as needed
 
 // Files or folders to exclude (relative to root)
@@ -11,7 +11,12 @@ const exclude = [
   '.github',
   'merged.md',
   'README.md',
-  'package-lock.json'
+  'package-lock.json',
+  'password.js',
+  'copilot.md',
+  'favicon.ico',
+  '.gitignore',
+  'package.json'
 ];
 
 function shouldExclude(filePath) {

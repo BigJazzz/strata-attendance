@@ -1,9 +1,7 @@
 name: Merge Files to Markdown
 
 on:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 jobs:
   merge:

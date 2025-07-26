@@ -81,7 +81,7 @@ export const updateDisplay = (sp, currentSyncedAttendees, currentTotalLots, stra
 
     const allAttendees = [...currentSyncedAttendees, ...queuedAttendees];
     
-    const attendedLots = new Set(allAttendees.map(attendee => String(attendee.lot_number)));
+    const attendedLots = new Set(allAttendees.map(attendee => String(attendee.lot)));
     
     renderAttendeeTable(allAttendees, strataPlanCache);
     updateQuorumDisplay(attendedLots.size, currentTotalLots);
@@ -151,47 +151,33 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
         return;
     }
 
-    attendees.sort((a, b) => a.lot_number - b.lot_number);
+    attendees.sort((a, b) => a.lot - b.lot);
 
     attendees.forEach(item => {
-        const lotData = strataPlanCache ? strataPlanCache[item.lot_number] : null;
+        const lotData = strataPlanCache ? strataPlanCache[item.lot] : null;
         const unitNumber = lotData ? (lotData[2] || 'N/A') : 'N/A';
         const isQueued = item.status === 'queued';
 
-        let name = item.name;
-        if (isQueued) {
-            name = item.proxyHolderLot ? `Proxy - Lot ${item.proxyHolderLot}` : (item.companyRep ? `${item.names[0]} - ${item.companyRep}` : item.names.join(', '));
-        }
+        const isProxy = item.is_proxy;
+        const isCompany = !isProxy && item.rep_name;
+
+        let ownerRepName = item.owner_name;
+        let companyName = isCompany ? item.rep_name : '';
+        let rowColor = '#d4e3c1'; // Default green for synced individual
+
+        if(isQueued) rowColor = '#f5e0df'; // Red for queued
+        else if(isProxy) rowColor = '#c1e1e3'; // Blue for synced proxy
+        else if(isCompany) rowColor = '#cbc1e3'; // Purple for synced company
         
-        const isProxy = item.is_proxy || (isQueued && !!item.proxyHolderLot);
-        const isCompany = !isProxy && (item.company_rep || (isQueued && !!item.companyRep));
-
-        let ownerRepName = name;
-        let companyName = item.company_rep || '';
-        let rowColor = '#d4e3c1';
-
-        if(isQueued) rowColor = '#f5e0df';
-        else if(isProxy) rowColor = '#c1e1e3';
-        else if(isCompany) rowColor = '#cbc1e3';
-        
-        if (isCompany) {
-            if (name.includes(' - ')) {
-                [companyName, ownerRepName] = name.split(' - ').map(s => s.trim());
-            } else {
-                 companyName = item.company_rep || item.name;
-                 ownerRepName = item.name;
-            }
-        }
-
         const row = document.createElement('tr');
         row.style.backgroundColor = rowColor;
         
         const deleteButton = isQueued 
             ? `<button class="delete-btn" data-type="queued" data-submission-id="${item.submissionId}">Delete</button>`
-            : `<button class="delete-btn" data-type="synced" data-lot="${item.lot_number}">Delete</button>`;
+            : `<button class="delete-btn" data-type="synced" data-lot="${item.lot}">Delete</button>`;
         
         row.innerHTML = `
-            <td>${item.lot_number}</td>
+            <td>${item.lot}</td>
             <td>${unitNumber}</td>
             <td>${ownerRepName}</td>
             <td>${companyName}</td>

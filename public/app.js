@@ -87,16 +87,16 @@ function handleFormSubmit(event) {
         return;
     }
 
+    // Corrected submission object to match the new schema expectations
     const submission = {
         submissionId: `sub_${Date.now()}_${Math.random()}`,
         sp: currentStrataPlan,
         meetingDate: currentMeetingDate,
-        lot_number: lot,
-        names: selectedNames,
+        lot: lot,
+        owner_name: selectedNames.join(', '),
+        rep_name: companyRep || (proxyHolderLot ? `Proxy by Lot ${proxyHolderLot}` : ''),
         is_financial: isFinancial,
         is_proxy: isProxy,
-        proxyHolderLot: proxyHolderLot,
-        companyRep: companyRep
     };
 
     const queue = getSubmissionQueue();
@@ -171,15 +171,15 @@ async function handleDelete(event) {
         updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
         showToast('Queued item removed.', 'info');
     } else if (type === 'synced') {
-        const lotNumber = button.dataset.lot;
-        const confirm = await showModal(`Are you sure you want to delete the record for Lot ${lotNumber}? This cannot be undone.`, { confirmText: 'Yes, Delete' });
+        const lotValue = button.dataset.lot;
+        const confirm = await showModal(`Are you sure you want to delete the record for Lot ${lotValue}? This cannot be undone.`, { confirmText: 'Yes, Delete' });
         if (!confirm.confirmed) return;
         
         try {
-            await apiDelete(`/attendance/${currentStrataPlan}/${currentMeetingDate}/${lotNumber}`);
-            currentSyncedAttendees = currentSyncedAttendees.filter(a => a.lot_number != lotNumber);
+            await apiDelete(`/attendance/${currentStrataPlan}/${currentMeetingDate}/${lotValue}`);
+            currentSyncedAttendees = currentSyncedAttendees.filter(a => a.lot != lotValue);
             updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
-            showToast(`Record for Lot ${lotNumber} deleted.`, 'success');
+            showToast(`Record for Lot ${lotValue} deleted.`, 'success');
         } catch (error) {
             console.error('Delete failed:', error);
             showToast(`Failed to delete record: ${error.message}`, 'error');
@@ -291,7 +291,6 @@ async function initializeApp() {
         document.getElementById('checkbox-container').style.display = isChecked ? 'none' : 'block';
         document.getElementById('owner-label').style.display = isChecked ? 'none' : 'block';
     });
-
 
     const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
     if (user) {

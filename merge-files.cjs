@@ -9,7 +9,6 @@ const exclude = [
   'node_modules',
   '.git',
   '.github',
-  'merged.md',
   'README.md',
   'package-lock.json',
   'password.js',

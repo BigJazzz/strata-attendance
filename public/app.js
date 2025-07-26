@@ -87,7 +87,6 @@ function handleFormSubmit(event) {
         return;
     }
 
-    // Corrected submission object to match the new schema expectations
     const submission = {
         submissionId: `sub_${Date.now()}_${Math.random()}`,
         sp: currentStrataPlan,
@@ -187,50 +186,22 @@ async function handleDelete(event) {
     }
 }
 
-async function handlePlanChange(event) {
-    const spNumber = event.target.value;
-    resetUiOnPlanChange();
-
-    if (autoSyncIntervalId) clearInterval(autoSyncIntervalId);
-
-    if (!spNumber) {
-        currentStrataPlan = null;
-        currentMeetingDate = null;
-        return;
-    }
-    
-    currentStrataPlan = spNumber;
-    document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
-    
+/**
+ * Loads the main application view for a given meeting.
+ * @param {string} spNumber - The strata plan number.
+ * @param {object} meetingData - An object with meetingDate, meetingType, and quorumTotal.
+ */
+async function loadMeeting(spNumber, meetingData) {
     try {
-        const newMeetingData = await showMeetingModal();
-        if (!newMeetingData) {
-            document.getElementById('strata-plan-select').value = '';
-            currentStrataPlan = null;
-            return;
-        }
-
-        const { meetingDate, meetingType, quorumTotal } = newMeetingData;
+        const { meetingDate, meetingType, quorumTotal } = meetingData;
+        currentStrataPlan = spNumber;
         currentMeetingDate = meetingDate;
-
-        const meetingCheck = await apiGet(`/meetings/${spNumber}/${meetingDate}`);
-        let meetingDetails;
-
-        if (meetingCheck.success && meetingCheck.meeting) {
-            meetingDetails = meetingCheck.meeting;
-            currentTotalLots = meetingDetails.quorum_total;
-            showToast(`Resuming meeting: ${meetingDetails.meeting_type}`, 'info');
-        } else {
-            await apiPost('/meetings', { spNumber, meetingDate, meetingType, quorumTotal });
-            meetingDetails = { meeting_type: meetingType, quorum_total: quorumTotal };
-            currentTotalLots = quorumTotal;
-            showToast('New meeting started!', 'success');
-        }
+        currentTotalLots = quorumTotal;
 
         const formattedDate = new Date(meetingDate + 'T00:00:00').toLocaleDateString('en-AU', {
             day: 'numeric', month: 'long', year: 'numeric'
         });
-        document.getElementById('meeting-title').textContent = `${meetingDetails.meeting_type} - SP ${spNumber}`;
+        document.getElementById('meeting-title').textContent = `${meetingType} - SP ${spNumber}`;
         document.getElementById('meeting-date').textContent = formattedDate;
 
         const cachedData = localStorage.getItem(`strata_${spNumber}`);
@@ -259,11 +230,61 @@ async function handlePlanChange(event) {
         document.getElementById('lot-number').disabled = false;
         document.getElementById('lot-number').focus();
 
+        if (autoSyncIntervalId) clearInterval(autoSyncIntervalId);
         autoSyncIntervalId = setInterval(syncSubmissions, 60000);
-        
+
     } catch (err) {
         console.error(`Failed to load data for SP ${spNumber}:`, err);
-        showToast(`Error loading data for SP ${spNumber}`, 'error');
+        showToast(`Error loading data for SP ${spNumber}: ${err.message}`, 'error');
+        resetUiOnPlanChange();
+    }
+}
+
+
+async function handlePlanChange(event) {
+    const spNumber = event.target.value;
+    resetUiOnPlanChange();
+
+    if (autoSyncIntervalId) clearInterval(autoSyncIntervalId);
+
+    if (!spNumber) {
+        currentStrataPlan = null;
+        currentMeetingDate = null;
+        return;
+    }
+    
+    document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
+
+    // Check for an existing meeting for TODAY's date first.
+    const today = new Date().toISOString().split('T')[0]; // Get YYYY-MM-DD
+    try {
+        const meetingCheck = await apiGet(`/meetings/${spNumber}/${today}`);
+        
+        if (meetingCheck.success && meetingCheck.meeting) {
+            // If today's meeting exists, load it automatically.
+            showToast(`Auto-loading today's meeting: ${meetingCheck.meeting.meeting_type}`, 'info');
+            const meetingData = {
+                meetingDate: today,
+                meetingType: meetingCheck.meeting.meeting_type,
+                quorumTotal: meetingCheck.meeting.quorum_total
+            };
+            await loadMeeting(spNumber, meetingData);
+        } else {
+            // If not, show the modal for the user to create or specify one.
+            const newMeetingData = await showMeetingModal();
+            if (!newMeetingData) {
+                document.getElementById('strata-plan-select').value = '';
+                currentStrataPlan = null;
+                return;
+            }
+            
+            // Create the new meeting via POST, which now handles duplicates gracefully.
+            await apiPost('/meetings', { spNumber, ...newMeetingData });
+            await loadMeeting(spNumber, newMeetingData);
+        }
+    } catch (err) {
+        console.error(`Failed during meeting setup for SP ${spNumber}:`, err);
+        showToast(`Error setting up meeting: ${err.message}`, 'error');
         resetUiOnPlanChange();
     }
 }

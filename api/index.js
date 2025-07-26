@@ -75,32 +75,52 @@ app.post('/api/meetings', authenticate, async (req, res) => {
         if (!spNumber || !meetingDate || !meetingType || !quorumTotal) {
             return res.status(400).json({ error: 'Missing meeting details.' });
         }
+
         const db = getDb();
         const planResult = await db.execute({
             sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
             args: [spNumber],
         });
+
         if (planResult.rows.length === 0) {
             return res.status(404).json({ error: 'Strata plan not found.' });
         }
         const plan_id = planResult.rows[0][0];
+
+        // Check if a meeting with these exact details already exists.
+        const existingMeetingResult = await db.execute({
+            sql: 'SELECT meeting_type, quorum_total FROM meetings WHERE plan_id = ? AND meeting_date = ? AND meeting_type = ?',
+            args: [plan_id, meetingDate, meetingType],
+        });
+
+        if (existingMeetingResult.rows.length > 0) {
+            // Meeting with same details already exists, return 200 OK.
+            return res.status(200).json({ 
+                success: true, 
+                message: 'Existing meeting with same details found.', 
+                meeting: rowsToObjects(existingMeetingResult)[0] 
+            });
+        }
+
+        // If no exact match, try to insert the new meeting.
         await db.execute({
             sql: 'INSERT INTO meetings (plan_id, meeting_date, meeting_type, quorum_total) VALUES (?, ?, ?, ?)',
             args: [plan_id, meetingDate, meetingType, quorumTotal],
         });
+
         res.status(201).json({ success: true, message: 'Meeting created successfully.' });
+
     } catch (err) {
+        // This will catch the UNIQUE constraint on (plan_id, meeting_date) if a meeting with a *different* type exists on the same day.
         if (err.message && err.message.includes('UNIQUE constraint failed')) {
-            return res.status(409).json({ error: 'A meeting for this plan already exists on this date.' });
+            return res.status(409).json({ error: 'A meeting for this plan already exists on this date with a different type.' });
         }
         console.error('[CREATE MEETING ERROR]', err);
         res.status(500).json({ error: 'Failed to create meeting.' });
     }
 });
 
-// --- ATTENDANCE ENDPOINTS (Corrected for the confirmed schema) ---
-
-// GET all synced attendance records for a specific meeting date
+// --- ATTENDANCE ENDPOINTS ---
 app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
     try {
         const { spNumber, date } = req.params;
@@ -119,7 +139,6 @@ app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
     }
 });
 
-// DELETE a single synced attendance record for a specific date
 app.delete('/api/attendance/:spNumber/:date/:lot', authenticate, async (req, res) => {
     try {
         const { spNumber, date, lot } = req.params;
@@ -144,7 +163,6 @@ app.delete('/api/attendance/:spNumber/:date/:lot', authenticate, async (req, res
     }
 });
 
-// POST a batch of submissions from the offline queue
 app.post('/api/attendance/batch', authenticate, async (req, res) => {
     const { submissions } = req.body;
     if (!submissions || !Array.isArray(submissions) || submissions.length === 0) {
@@ -165,7 +183,6 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
             const plan_id = planIdMap.get(sub.sp);
             if (!plan_id) continue;
 
-            // "Upsert" logic: Delete any existing record for this lot on this day, then insert the new one.
             await tx.execute({
                 sql: `DELETE FROM attendance WHERE plan_id = ? AND lot = ? AND date(timestamp) = ?`,
                 args: [plan_id, sub.lot, sub.meetingDate]
@@ -399,7 +416,7 @@ app.patch('/api/users/:username/password', authenticate, async (req, res) => {
             sql: 'UPDATE users SET password_hash = ? WHERE username = ?',
             args: [password_hash, username]
         });
-        res.json({ success: true, message: 'Password changed successfully.' });
+        res.json({ success: true, message: 'Password updated successfully.' });
     } catch (err) {
         console.error('[CHANGE PASSWORD ERROR]', err);
         res.status(500).json({ error: 'Failed to update password.' });

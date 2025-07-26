@@ -198,7 +198,8 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
             const plan_id = planIdMap.get(sub.sp);
             if (!plan_id) continue;
 
-            const rep_name = sub.rep_name || '';
+            // **THE FIX**: Convert empty strings to NULL for better database compatibility.
+            const rep_name = sub.rep_name || null;
 
             await tx.execute({
                 sql: `DELETE FROM attendance WHERE plan_id = ? AND lot = ? AND date(timestamp) = ?`,
@@ -226,7 +227,6 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
     }
 });
 
-// NEW ENDPOINT for verifying submissions
 app.post('/api/attendance/verify', authenticate, async (req, res) => {
     const { records } = req.body;
     if (!records || !Array.isArray(records) || records.length === 0) {

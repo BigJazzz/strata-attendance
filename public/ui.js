@@ -123,7 +123,12 @@ export const resetUiOnPlanChange = () => {
  */
 export const renderStrataPlans = (plans) => {
     const strataPlanSelect = document.getElementById('strata-plan-select');
-    if (!plans) return;
+    if (!plans || plans.length === 0) {
+        strataPlanSelect.innerHTML = '<option value="">No plans available</option>';
+        strataPlanSelect.disabled = true;
+        return;
+    };
+
     strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
     plans.sort((a, b) => a.sp_number - b.sp_number); 
     plans.forEach(plan => {
@@ -132,6 +137,9 @@ export const renderStrataPlans = (plans) => {
         option.textContent = `${plan.sp_number} - ${plan.suburb}`;
         strataPlanSelect.appendChild(option);
     });
+
+    // Enable the select now that it's populated
+    strataPlanSelect.disabled = false;
 
     const savedSP = document.cookie.split('; ').find(row => row.startsWith('selectedSP='))?.split('=')[1];
 

@@ -16,7 +16,8 @@ const exclude = [
   'copilot.md',
   'favicon.ico',
   '.gitignore',
-  'package.json'
+  'package.json',
+  'merge-files.cjs'
 ];
 
 function shouldExclude(filePath) {

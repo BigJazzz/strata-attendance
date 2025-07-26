@@ -18,7 +18,7 @@ jobs:
       - name: Run merge script
         run: |
           npm install
-          node merge-files.js
+          node merge-files.cjs
 
       - name: Commit merged file
         run: |

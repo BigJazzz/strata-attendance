@@ -115,13 +115,11 @@ async function syncSubmissions() {
     updateSyncButton(true);
     showToast(`Syncing ${queue.length} item(s)...`, 'info');
 
-    // Disable delete buttons for queued items during sync
     document.querySelectorAll('.delete-btn[data-type="queued"]').forEach(btn => btn.disabled = true);
 
     try {
         const result = await apiPost('/attendees/batch', { submissions: queue });
         if (result.success) {
-            // Clear the queue now that it's successfully submitted
             saveSubmissionQueue([]);
             showToast('Sync successful!', 'success');
         } else {
@@ -132,7 +130,6 @@ async function syncSubmissions() {
         showToast(`Sync failed. Items remain queued.`, 'error');
     } finally {
         isSyncing = false;
-        // Re-fetch the latest data from the server to get the true state
         if (currentStrataPlan && currentMeetingDate) {
             const data = await apiGet(`/attendees/${currentStrataPlan}/${currentMeetingDate}`);
             if (data.success) {
@@ -140,7 +137,6 @@ async function syncSubmissions() {
             }
         }
         updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
-        // Re-enable delete buttons
         document.querySelectorAll('.delete-btn').forEach(btn => btn.disabled = false);
     }
 }
@@ -170,7 +166,6 @@ async function handleDelete(event) {
         
         try {
             await apiDelete(`/attendees/${currentStrataPlan}/${currentMeetingDate}/${lotNumber}`);
-            // Remove from the local state immediately for a responsive UI
             currentSyncedAttendees = currentSyncedAttendees.filter(a => a.lot_number != lotNumber);
             updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
             showToast(`Record for Lot ${lotNumber} deleted.`, 'success');
@@ -245,7 +240,6 @@ async function handlePlanChange(event) {
             localStorage.setItem(`strata_${spNumber}`, JSON.stringify(strataPlanCache));
         }
         
-        // Fetch current attendees for this meeting
         const attendeesData = await apiGet(`/attendees/${spNumber}/${meetingDate}`);
         if (attendeesData.success) {
             currentSyncedAttendees = attendeesData.attendees.map(a => ({...a, status: 'synced'}));
@@ -255,8 +249,7 @@ async function handlePlanChange(event) {
         document.getElementById('lot-number').disabled = false;
         document.getElementById('lot-number').focus();
 
-        // Start auto-syncing
-        autoSyncIntervalId = setInterval(syncSubmissions, 60000); // Sync every 60 seconds
+        autoSyncIntervalId = setInterval(syncSubmissions, 60000);
         
     } catch (err) {
         console.error(`Failed to load data for SP ${spNumber}:`, err);
@@ -272,20 +265,25 @@ async function initializeApp() {
     document.getElementById('login-section').classList.add('hidden');
     document.getElementById('main-app').classList.remove('hidden');
 
-    // Setup main event listeners
-    document.getElementById('logout-btn').addEventListener('click', handleLogout);
+    // --- Setup event listeners for elements that are ALWAYS visible in the main app ---
+    document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
+    
+    // --- Setup event listeners for elements within the check-in tab ---
     document.getElementById('strata-plan-select').addEventListener('change', handlePlanChange);
     document.getElementById('lot-number').addEventListener('input', debounce((e) => {
         if (e.target.value.trim() && strataPlanCache) {
             renderOwnerCheckboxes(e.target.value.trim(), strataPlanCache);
         }
     }, 300));
-    document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
-    document.getElementById('change-password-btn').addEventListener('click', handleChangePassword);
-    document.getElementById('user-list-body').addEventListener('change', handleUserActions);
     document.getElementById('attendance-form').addEventListener('submit', handleFormSubmit);
     document.getElementById('attendee-table-body').addEventListener('click', handleDelete);
     document.getElementById('sync-btn').addEventListener('click', syncSubmissions);
+    document.getElementById('is-proxy').addEventListener('change', (e) => {
+        const isChecked = e.target.checked;
+        document.getElementById('proxy-holder-group').style.display = isChecked ? 'block' : 'none';
+        document.getElementById('checkbox-container').style.display = isChecked ? 'none' : 'block';
+        document.getElementById('owner-label').style.display = isChecked ? 'none' : 'block';
+    });
 
 
     const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
@@ -315,11 +313,11 @@ async function initializeApp() {
         showToast('Error: Could not load strata plans.', 'error');
     }
     
-    // Perform an initial sync check on load
     syncSubmissions();
 }
 
 function setupAdminEventListeners() {
+    // --- Setup listeners for elements inside the admin tab ---
     const adminTabBtn = document.getElementById('admin-tab-btn');
     if (adminTabBtn) {
         adminTabBtn.addEventListener('click', (e) => {
@@ -327,9 +325,24 @@ function setupAdminEventListeners() {
             loadUsers();
         });
     }
+    document.getElementById('logout-btn').addEventListener('click', handleLogout);
+    document.getElementById('change-password-btn').addEventListener('click', handleChangePassword);
     document.getElementById('add-user-btn').addEventListener('click', handleAddUser);
     document.getElementById('clear-cache-btn').addEventListener('click', handleClearCache);
-    // CSV import listeners can be added here if re-implemented
+    document.getElementById('user-list-body').addEventListener('change', handleUserActions);
+    
+    const collapsibleToggle = document.querySelector('.collapsible-toggle');
+    if (collapsibleToggle) {
+        collapsibleToggle.addEventListener('click', function() {
+            this.classList.toggle('active');
+            const content = this.nextElementSibling;
+            if (content.style.maxHeight) {
+                content.style.maxHeight = null;
+            } else {
+                content.style.maxHeight = content.scrollHeight + "px";
+            }
+        });
+    }
 }
 
 function openTab(evt, tabName) {
@@ -378,7 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
   } else {
-      console.error("Fatal Error: The login form with id 'login-form' was not found in the DOM.");
+      console.error("Fatal Error: The login form with id 'login-form' was not found in the DOM. Check public/index.html.");
   }
   
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];

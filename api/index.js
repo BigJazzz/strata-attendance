@@ -47,6 +47,27 @@ function isAdmin(req, res, next) {
 }
 
 // --- Meeting Endpoints ---
+
+// NEW: Get all meetings for a specific strata plan
+app.get('/api/meetings/:spNumber', authenticate, async (req, res) => {
+    try {
+        const { spNumber } = req.params;
+        const db = getDb();
+        const result = await db.execute({
+            sql: `SELECT m.meeting_date, m.meeting_type, m.quorum_total
+                  FROM meetings m
+                  JOIN strata_plans sp ON m.plan_id = sp.id
+                  WHERE sp.sp_number = ?
+                  ORDER BY m.meeting_date DESC`,
+            args: [spNumber],
+        });
+        res.json({ success: true, meetings: rowsToObjects(result) });
+    } catch (err) {
+        console.error('[GET ALL MEETINGS ERROR]', err);
+        res.status(500).json({ error: 'Failed to fetch meetings.' });
+    }
+});
+
 app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
     try {
         const { spNumber, date } = req.params;
@@ -87,14 +108,12 @@ app.post('/api/meetings', authenticate, async (req, res) => {
         }
         const plan_id = planResult.rows[0][0];
 
-        // Check if a meeting with these exact details already exists.
         const existingMeetingResult = await db.execute({
             sql: 'SELECT meeting_type, quorum_total FROM meetings WHERE plan_id = ? AND meeting_date = ? AND meeting_type = ?',
             args: [plan_id, meetingDate, meetingType],
         });
 
         if (existingMeetingResult.rows.length > 0) {
-            // Meeting with same details already exists, return 200 OK.
             return res.status(200).json({ 
                 success: true, 
                 message: 'Existing meeting with same details found.', 
@@ -102,7 +121,6 @@ app.post('/api/meetings', authenticate, async (req, res) => {
             });
         }
 
-        // If no exact match, try to insert the new meeting.
         await db.execute({
             sql: 'INSERT INTO meetings (plan_id, meeting_date, meeting_type, quorum_total) VALUES (?, ?, ?, ?)',
             args: [plan_id, meetingDate, meetingType, quorumTotal],
@@ -111,7 +129,6 @@ app.post('/api/meetings', authenticate, async (req, res) => {
         res.status(201).json({ success: true, message: 'Meeting created successfully.' });
 
     } catch (err) {
-        // This will catch the UNIQUE constraint on (plan_id, meeting_date) if a meeting with a *different* type exists on the same day.
         if (err.message && err.message.includes('UNIQUE constraint failed')) {
             return res.status(409).json({ error: 'A meeting for this plan already exists on this date with a different type.' });
         }
@@ -191,7 +208,7 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
             await tx.execute({
                 sql: `INSERT INTO attendance (plan_id, lot, owner_name, rep_name, is_financial, is_proxy)
                       VALUES (?, ?, ?, ?, ?, ?)`,
-                args: [plan_id, sub.lot, sub.owner_name, sub.rep_name, sub.is_financial, sub.is_proxy]
+                args: [plan_id, sub.lot, sub.owner_name, sub.rep_name, sub.is_financial ? 1 : 0, sub.is_proxy ? 1 : 0]
             });
         }
 

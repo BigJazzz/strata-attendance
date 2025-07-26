@@ -82,8 +82,8 @@ function handleFormSubmit(event) {
         showToast('Please enter the Proxy Holder Lot Number.', 'error');
         return;
     }
-    if (!isProxy && selectedNames.length === 0) {
-        showToast('Please select at least one owner.', 'error');
+    if (!isProxy && selectedNames.length === 0 && !companyRep) {
+        showToast('Please select at least one owner or enter a company representative.', 'error');
         return;
     }
 
@@ -188,8 +188,6 @@ async function handleDelete(event) {
 
 /**
  * Loads the main application view for a given meeting.
- * @param {string} spNumber - The strata plan number.
- * @param {object} meetingData - An object with meetingDate, meetingType, and quorumTotal.
  */
 async function loadMeeting(spNumber, meetingData) {
     try {
@@ -240,7 +238,6 @@ async function loadMeeting(spNumber, meetingData) {
     }
 }
 
-
 async function handlePlanChange(event) {
     const spNumber = event.target.value;
     resetUiOnPlanChange();
@@ -255,13 +252,11 @@ async function handlePlanChange(event) {
     
     document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
 
-    // Check for an existing meeting for TODAY's date first.
-    const today = new Date().toISOString().split('T')[0]; // Get YYYY-MM-DD
+    const today = new Date().toISOString().split('T')[0];
     try {
         const meetingCheck = await apiGet(`/meetings/${spNumber}/${today}`);
         
         if (meetingCheck.success && meetingCheck.meeting) {
-            // If today's meeting exists, load it automatically.
             showToast(`Auto-loading today's meeting: ${meetingCheck.meeting.meeting_type}`, 'info');
             const meetingData = {
                 meetingDate: today,
@@ -270,17 +265,22 @@ async function handlePlanChange(event) {
             };
             await loadMeeting(spNumber, meetingData);
         } else {
-            // If not, show the modal for the user to create or specify one.
-            const newMeetingData = await showMeetingModal();
-            if (!newMeetingData) {
+            const allMeetingsResult = await apiGet(`/meetings/${spNumber}`);
+            const existingMeetings = allMeetingsResult.success ? allMeetingsResult.meetings : [];
+            
+            const chosenMeetingData = await showMeetingModal(existingMeetings);
+
+            if (!chosenMeetingData) {
                 document.getElementById('strata-plan-select').value = '';
                 currentStrataPlan = null;
                 return;
             }
             
-            // Create the new meeting via POST, which now handles duplicates gracefully.
-            await apiPost('/meetings', { spNumber, ...newMeetingData });
-            await loadMeeting(spNumber, newMeetingData);
+            if (chosenMeetingData.isNew) {
+                await apiPost('/meetings', { spNumber, ...chosenMeetingData });
+            }
+            
+            await loadMeeting(spNumber, chosenMeetingData);
         }
     } catch (err) {
         console.error(`Failed during meeting setup for SP ${spNumber}:`, err);

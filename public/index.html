@@ -15,7 +15,6 @@
         <!-- Login Section -->
         <div id="login-section">
             <h1>Login</h1>
-            <!-- The form was missing from this section. It has been added back. -->
             <form id="login-form">
                 <div class="form-group">
                     <label for="username">Username</label>
@@ -160,36 +159,49 @@
     
     <div id="meeting-modal" class="modal-overlay">
         <div class="modal-content">
-            <h3>New Meeting Setup</h3>
-            <p>Please provide the meeting details below.</p>
-            <form id="meeting-form">
+            <div id="existing-meeting-section" class="hidden">
+                <h3>Resume Existing Meeting</h3>
                 <div class="form-group">
-                    <label for="meeting-date-input">Meeting Date</label>
-                    <input type="date" id="meeting-date-input" required>
+                    <label for="existing-meeting-select">Select a past meeting</label>
+                    <select id="existing-meeting-select"></select>
                 </div>
-                <div class="form-group">
-                    <label for="meeting-type-select">Meeting Type</label>
-                    <select id="meeting-type-select" required>
-                        <option value="">Select a type...</option>
-                        <option value="AGM">AGM</option>
-                        <option value="EGM">EGM</option>
-                        <option value="SCM">SCM</option>
-                        <option value="Other">Other</option>
-                    </select>
-                </div>
-                <div class="form-group hidden" id="other-meeting-type-group">
-                    <label for="other-meeting-type-input">Specify Meeting Type</label>
-                    <input type="text" id="other-meeting-type-input">
-                </div>
-                <div class="form-group">
-                    <label for="quorum-total-input" id="quorum-total-label">Quorum Total</label>
-                    <input type="number" id="quorum-total-input" required>
-                </div>
-                <div class="modal-buttons">
-                    <button type="button" id="meeting-cancel-btn" class="modal-cancel-btn">Cancel</button>
-                    <button type="submit" id="meeting-confirm-btn" class="modal-confirm-btn">Start Meeting</button>
-                </div>
-            </form>
+                <button type="button" id="resume-meeting-btn">Resume Selected Meeting</button>
+                <hr style="margin: 1.5rem 0;">
+                <p style="text-align: center;">Or</p>
+            </div>
+
+            <div id="new-meeting-section">
+                <h3>New Meeting Setup</h3>
+                <p>Please provide the meeting details below.</p>
+                <form id="meeting-form">
+                    <div class="form-group">
+                        <label for="meeting-date-input">Meeting Date</label>
+                        <input type="date" id="meeting-date-input" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="meeting-type-select">Meeting Type</label>
+                        <select id="meeting-type-select" required>
+                            <option value="">Select a type...</option>
+                            <option value="AGM">AGM</option>
+                            <option value="EGM">EGM</option>
+                            <option value="SCM">SCM</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div class="form-group hidden" id="other-meeting-type-group">
+                        <label for="other-meeting-type-input">Specify Meeting Type</label>
+                        <input type="text" id="other-meeting-type-input">
+                    </div>
+                    <div class="form-group">
+                        <label for="quorum-total-input" id="quorum-total-label">Quorum Total</label>
+                        <input type="number" id="quorum-total-input" required>
+                    </div>
+                    <div class="modal-buttons">
+                        <button type="button" id="meeting-cancel-btn" class="modal-cancel-btn">Cancel</button>
+                        <button type="submit" id="meeting-confirm-btn" class="modal-confirm-btn">Start Meeting</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
     

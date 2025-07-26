@@ -31,6 +31,22 @@ import {
     updateSyncButton
 } from './ui.js';
 
+// --- DOM Elements ---
+// It's good practice to declare all DOM element variables at the top.
+const loginForm = document.getElementById('login-form');
+const logoutBtn = document.getElementById('logout-btn');
+const changePasswordBtn = document.getElementById('change-password-btn');
+const addUserBtn = document.getElementById('add-user-btn');
+const clearCacheBtn = document.getElementById('clear-cache-btn');
+const userListBody = document.getElementById('user-list-body');
+const loginSection = document.getElementById('login-section');
+const mainApp = document.getElementById('main-app');
+const userDisplay = document.getElementById('user-display');
+const adminPanel = document.getElementById('admin-panel');
+const strataPlanSelect = document.getElementById('strata-plan-select');
+const lotNumberInput = document.getElementById('lot-number');
+const checkInTabBtn = document.getElementById('check-in-tab-btn');
+
 // --- App State ---
 let currentStrataPlan = null;
 let currentMeetingDate = null;

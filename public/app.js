@@ -72,6 +72,8 @@ function handleFormSubmit(event) {
         return;
     }
 
+    const companyNameHidden = document.getElementById('company-name-hidden');
+    const companyName = companyNameHidden ? companyNameHidden.value : null;
     const selectedNames = Array.from(document.querySelectorAll('input[name="owner"]:checked')).map(cb => cb.value);
     const isFinancial = document.getElementById('is-financial').checked;
     const isProxy = document.getElementById('is-proxy').checked;
@@ -82,8 +84,9 @@ function handleFormSubmit(event) {
         showToast('Please enter the Proxy Holder Lot Number.', 'error');
         return;
     }
-    if (!isProxy && selectedNames.length === 0 && !companyRep) {
-        showToast('Please select at least one owner or enter a company representative.', 'error');
+    // Updated validation to ensure either an individual or a company is checked in.
+    if (!isProxy && !companyName && selectedNames.length === 0) {
+        showToast('Please select at least one owner.', 'error');
         return;
     }
 
@@ -92,7 +95,8 @@ function handleFormSubmit(event) {
         sp: currentStrataPlan,
         meetingDate: currentMeetingDate,
         lot: lot,
-        owner_name: selectedNames.join(', '),
+        // **THE FIX**: Prioritize the hidden company name if it exists.
+        owner_name: companyName || selectedNames.join(', '),
         rep_name: companyRep || (proxyHolderLot ? `Proxy by Lot ${proxyHolderLot}` : ''),
         is_financial: isFinancial,
         is_proxy: isProxy,
@@ -237,6 +241,7 @@ async function loadMeeting(spNumber, meetingData) {
         resetUiOnPlanChange();
     }
 }
+
 
 async function handlePlanChange(event) {
     const spNumber = event.target.value;

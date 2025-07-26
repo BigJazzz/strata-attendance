@@ -10,22 +10,22 @@ import {
   handleImportCsv
 } from './auth.js';
 
-import { 
-    showModal, 
-    clearStrataCache, 
-    apiGet, 
-    apiPost, 
+import {
+    showModal,
+    clearStrataCache,
+    apiGet,
+    apiPost,
     apiDelete,
-    showToast, 
-    debounce, 
+    showToast,
+    debounce,
     showMeetingModal,
     getSubmissionQueue,
     saveSubmissionQueue
 } from './utils.js';
 
-import { 
-    renderStrataPlans, 
-    resetUiOnPlanChange, 
+import {
+    renderStrataPlans,
+    resetUiOnPlanChange,
     renderOwnerCheckboxes,
     updateDisplay,
     updateSyncButton
@@ -48,6 +48,7 @@ const checkInTabBtn = document.getElementById('check-in-tab-btn');
 
 // --- App State ---
 let currentStrataPlan = null;
+let currentMeetingId = null;
 let currentMeetingDate = null;
 let strataPlanCache = {};
 let currentSyncedAttendees = [];
@@ -62,18 +63,18 @@ let isAppInitialized = false;
 function handleFormSubmit(event) {
     event.preventDefault();
     const form = event.target;
-    
+
     const lot = lotNumberInput.value.trim();
     if (!currentStrataPlan || !lot) {
         showToast('Please select a plan and enter a lot number.', 'error');
         return;
     }
-    
+
     const companyRep = document.getElementById('company-rep').value.trim();
     const proxyHolderLot = document.getElementById('proxy-holder-lot').value.trim();
     const isFinancial = document.getElementById('is-financial').checked;
     const isProxy = document.getElementById('is-proxy').checked;
-    
+
     const companyNameHidden = document.getElementById('company-name-hidden');
     const companyName = companyNameHidden ? companyNameHidden.value : null;
     const selectedNames = Array.from(document.querySelectorAll('input[name="owner"]:checked')).map(cb => cb.value);
@@ -89,7 +90,6 @@ function handleFormSubmit(event) {
         return;
     }
 
-    // **THE FIX**: Implement the new logic for determining the rep_name.
     let rep_name;
     if (isProxy) {
         rep_name = `Proxy by Lot ${proxyHolderLot}`;
@@ -102,7 +102,6 @@ function handleFormSubmit(event) {
     const submission = {
         submissionId: `sub_${Date.now()}_${Math.random()}`,
         sp: currentStrataPlan,
-        meetingDate: currentMeetingDate,
         lot: lot,
         owner_name: owner_name,
         rep_name: rep_name,
@@ -116,7 +115,7 @@ function handleFormSubmit(event) {
 
     updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
     showToast(`Lot ${lot} queued for submission.`, 'info');
-    
+
     form.reset();
     document.getElementById('company-rep-group').style.display = 'none';
     document.getElementById('proxy-holder-group').style.display = 'none';
@@ -134,6 +133,10 @@ async function syncSubmissions() {
         updateSyncButton();
         return;
     }
+    if (!currentMeetingId) {
+        showToast('Cannot sync without an active meeting.', 'error');
+        return;
+    }
 
     isSyncing = true;
     updateSyncButton(true);
@@ -142,41 +145,16 @@ async function syncSubmissions() {
     document.querySelectorAll('.delete-btn[data-type="queued"]').forEach(btn => btn.disabled = true);
 
     try {
-        const postResult = await apiPost('/attendance/batch', { submissions: queue });
-        if (!postResult || !postResult.success) {
-            throw new Error(postResult.error || 'Batch submission failed at the first step.');
-        }
+        const postResult = await apiPost('/attendance/batch', {
+            meetingId: currentMeetingId,
+            submissions: queue
+        });
 
-        const recordsToVerify = queue.map(sub => ({
-            sp: sub.sp,
-            lot: sub.lot,
-            meetingDate: sub.meetingDate
-        }));
-
-        const verifyResult = await apiPost('/attendance/verify', { records: recordsToVerify });
-        if (verifyResult && verifyResult.success) {
-            const verifiedSet = new Set(
-                verifyResult.verified.map(rec => `${rec.sp_number}-${rec.lot}-${rec.meeting_date}`)
-            );
-            
-            let currentQueue = getSubmissionQueue();
-            const newQueue = currentQueue.filter(sub => {
-                const key = `${sub.sp}-${sub.lot}-${sub.meetingDate}`;
-                return !verifiedSet.has(key);
-            });
-
-            saveSubmissionQueue(newQueue);
-
-            const successfullySyncedCount = verifiedSet.size;
-            if (successfullySyncedCount > 0) {
-                showToast(`Successfully synced ${successfullySyncedCount} item(s).`, 'success');
-            }
-            if (newQueue.length > 0) {
-                 showToast(`${newQueue.length} item(s) failed to sync and remain queued.`, 'error');
-            }
-
+        if (postResult && postResult.success) {
+            saveSubmissionQueue([]);
+            showToast(`Successfully synced ${queue.length} item(s).`, 'success');
         } else {
-            throw new Error(verifyResult.error || 'Verification step failed.');
+            throw new Error(postResult.error || 'Batch submission failed.');
         }
 
     } catch (error) {
@@ -191,7 +169,6 @@ async function syncSubmissions() {
             }
         }
         updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
-        document.querySelectorAll('.delete-btn').forEach(btn => btn.disabled = false);
     }
 }
 
@@ -215,7 +192,7 @@ async function handleDelete(event) {
         const lotValue = button.dataset.lot;
         const confirm = await showModal(`Are you sure you want to delete the record for Lot ${lotValue}? This cannot be undone.`, { confirmText: 'Yes, Delete' });
         if (!confirm.confirmed) return;
-        
+
         try {
             await apiDelete(`/attendance/${currentStrataPlan}/${currentMeetingDate}/${lotValue}`);
             currentSyncedAttendees = currentSyncedAttendees.filter(a => a.lot != lotValue);
@@ -233,8 +210,9 @@ async function handleDelete(event) {
  */
 async function loadMeeting(spNumber, meetingData) {
     try {
-        const { meetingDate, meetingType, quorumTotal } = meetingData;
+        const { id, meetingDate, meetingType, quorumTotal } = meetingData;
         currentStrataPlan = spNumber;
+        currentMeetingId = id;
         currentMeetingDate = meetingDate;
         currentTotalLots = quorumTotal;
 
@@ -260,7 +238,7 @@ async function loadMeeting(spNumber, meetingData) {
             }
             localStorage.setItem(`strata_${spNumber}`, JSON.stringify(strataPlanCache));
         }
-        
+
         const attendeesData = await apiGet(`/attendance/${spNumber}/${meetingDate}`);
         if (attendeesData.success) {
             currentSyncedAttendees = attendeesData.attendees.map(a => ({...a, status: 'synced'}));
@@ -290,40 +268,54 @@ async function handlePlanChange(event) {
     if (!spNumber) {
         currentStrataPlan = null;
         currentMeetingDate = null;
+        currentMeetingId = null;
         return;
     }
-    
+
     document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
 
     const today = new Date().toISOString().split('T')[0];
     try {
         const meetingCheck = await apiGet(`/meetings/${spNumber}/${today}`);
-        
+
         if (meetingCheck.success && meetingCheck.meeting) {
             showToast(`Auto-loading today's meeting: ${meetingCheck.meeting.meeting_type}`, 'info');
-            const meetingData = {
+            await loadMeeting(spNumber, {
+                id: meetingCheck.meeting.id,
                 meetingDate: today,
                 meetingType: meetingCheck.meeting.meeting_type,
                 quorumTotal: meetingCheck.meeting.quorum_total
-            };
-            await loadMeeting(spNumber, meetingData);
+            });
         } else {
             const allMeetingsResult = await apiGet(`/meetings/${spNumber}`);
             const existingMeetings = allMeetingsResult.success ? allMeetingsResult.meetings : [];
-            
-            const chosenMeetingData = await showMeetingModal(existingMeetings);
 
-            if (!chosenMeetingData) {
+            const chosenMeetingResult = await showMeetingModal(existingMeetings);
+
+            if (!chosenMeetingResult) {
                 document.getElementById('strata-plan-select').value = '';
                 currentStrataPlan = null;
                 return;
             }
-            
-            if (chosenMeetingData.isNew) {
-                await apiPost('/meetings', { spNumber, ...chosenMeetingData });
+
+            let meetingDataToLoad;
+
+            if (chosenMeetingResult.isNew) {
+                const newMeetingResponse = await apiPost('/meetings', { spNumber, ...chosenMeetingResult });
+                if (!newMeetingResponse.success) {
+                    throw new Error(newMeetingResponse.error || 'Failed to create new meeting.');
+                }
+                meetingDataToLoad = {
+                    id: newMeetingResponse.meeting.id,
+                    meetingDate: chosenMeetingResult.meetingDate,
+                    meetingType: newMeetingResponse.meeting.meeting_type,
+                    quorumTotal: newMeetingResponse.meeting.quorum_total,
+                };
+            } else {
+                meetingDataToLoad = chosenMeetingResult;
             }
-            
-            await loadMeeting(spNumber, chosenMeetingData);
+
+            await loadMeeting(spNumber, meetingDataToLoad);
         }
     } catch (err) {
         console.error(`Failed during meeting setup for SP ${spNumber}:`, err);
@@ -364,7 +356,7 @@ async function initializeApp() {
             setupAdminEventListeners();
         }
     }
-    
+
     const cachedPlans = localStorage.getItem('strataPlans');
     if (cachedPlans) {
         try {
@@ -374,13 +366,13 @@ async function initializeApp() {
             localStorage.removeItem('strataPlans');
         }
     }
-    
+
     try {
         const data = await apiGet('/strata-plans');
         if (data.success) {
             localStorage.setItem('strataPlans', JSON.stringify(data.plans));
             renderStrataPlans(data.plans);
-            
+
             if (user && user.role !== 'Admin' && data.plans.length === 1) {
                 const strataPlanSelect = document.getElementById('strata-plan-select');
                 strataPlanSelect.value = data.plans[0].sp_number;
@@ -396,7 +388,7 @@ async function initializeApp() {
              showToast('Error: Could not load strata plans.', 'error');
         }
     }
-    
+
     syncSubmissions();
 }
 
@@ -413,7 +405,7 @@ function setupAdminEventListeners() {
     document.getElementById('add-user-btn').addEventListener('click', handleAddUser);
     document.getElementById('clear-cache-btn').addEventListener('click', handleClearCache);
     document.getElementById('user-list-body').addEventListener('change', handleUserActions);
-    
+
     const collapsibleToggle = document.querySelector('.collapsible-toggle');
     if (collapsibleToggle) {
         collapsibleToggle.addEventListener('click', function() {
@@ -476,7 +468,7 @@ document.addEventListener('DOMContentLoaded', () => {
   } else {
       console.error("Fatal Error: The login form with id 'login-form' was not found in the DOM. Check public/index.html.");
   }
-  
+
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {
       initializeApp();

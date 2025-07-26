@@ -32,7 +32,7 @@ async function apiRequest(path, { method = 'GET', body = null } = {}) {
   if (response.status === 204) {
       return { success: true };
   }
-  
+
   const data = await response.json();
 
   if (!response.ok) {
@@ -147,19 +147,18 @@ export function showMeetingModal(existingMeetings = []) {
   const month = String(today.getMonth() + 1).padStart(2, '0');
   const day = String(today.getDate()).padStart(2, '0');
   const todayStr = `${year}-${month}-${day}`;
-  
+
   form.reset();
   dateInput.value = todayStr;
   otherGroup.classList.add('hidden');
   quorumLabel.textContent = 'Quorum Total';
-  
+
   if (existingMeetings.length > 0) {
       existingMeetingSection.classList.remove('hidden');
       existingMeetingSelect.innerHTML = '<option value="">Select a meeting to resume...</option>';
       existingMeetings.forEach((m, index) => {
           const option = document.createElement('option');
           option.value = index;
-          // Format the date from yyyy-MM-dd to dd-MM-yyyy
           const [year, month, day] = m.meeting_date.split('-');
           const formattedDate = `${day}-${month}-${year}`;
           option.textContent = `${formattedDate} - ${m.meeting_type}`;
@@ -185,7 +184,7 @@ export function showMeetingModal(existingMeetings = []) {
         if (meetingType === 'Other') {
             meetingType = otherInput.value.trim();
         }
-        
+
         if (!meetingType) {
             showToast('Please specify a meeting type.', 'error');
             return;
@@ -210,9 +209,7 @@ export function showMeetingModal(existingMeetings = []) {
         modal.style.display = 'none';
         resolve({
             isNew: false,
-            meetingDate: selectedMeeting.meeting_date,
-            meetingType: selectedMeeting.meeting_type,
-            quorumTotal: selectedMeeting.quorum_total
+            ...selectedMeeting
         });
     };
 

@@ -52,7 +52,7 @@ app.get('/api/meetings/:spNumber', authenticate, async (req, res) => {
         const { spNumber } = req.params;
         const db = getDb();
         const result = await db.execute({
-            sql: `SELECT m.meeting_date, m.meeting_type, m.quorum_total
+            sql: `SELECT m.id, m.meeting_date, m.meeting_type, m.quorum_total
                   FROM meetings m
                   JOIN strata_plans sp ON m.plan_id = sp.id
                   WHERE sp.sp_number = ?
@@ -71,7 +71,7 @@ app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
-            sql: `SELECT m.meeting_type, m.quorum_total 
+            sql: `SELECT m.id, m.meeting_type, m.quorum_total
                   FROM meetings m
                   JOIN strata_plans sp ON m.plan_id = sp.id
                   WHERE sp.sp_number = ? AND m.meeting_date = ?`,
@@ -106,25 +106,35 @@ app.post('/api/meetings', authenticate, async (req, res) => {
         }
         const plan_id = planResult.rows[0][0];
 
-        const existingMeetingResult = await db.execute({
-            sql: 'SELECT meeting_type, quorum_total FROM meetings WHERE plan_id = ? AND meeting_date = ? AND meeting_type = ?',
+        let meetingResult = await db.execute({
+            sql: 'SELECT id, meeting_type, quorum_total FROM meetings WHERE plan_id = ? AND meeting_date = ? AND meeting_type = ?',
             args: [plan_id, meetingDate, meetingType],
         });
 
-        if (existingMeetingResult.rows.length > 0) {
-            return res.status(200).json({ 
-                success: true, 
-                message: 'Existing meeting with same details found.', 
-                meeting: rowsToObjects(existingMeetingResult)[0] 
+        if (meetingResult.rows.length > 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'Existing meeting found.',
+                meeting: rowsToObjects(meetingResult)[0]
             });
         }
 
-        await db.execute({
-            sql: 'INSERT INTO meetings (plan_id, meeting_date, meeting_type, quorum_total) VALUES (?, ?, ?, ?)',
+        const insertResult = await db.execute({
+            sql: 'INSERT INTO meetings (plan_id, meeting_date, meeting_type, quorum_total) VALUES (?, ?, ?, ?) RETURNING id',
             args: [plan_id, meetingDate, meetingType, quorumTotal],
         });
 
-        res.status(201).json({ success: true, message: 'Meeting created successfully.' });
+        const newMeetingId = insertResult.rows[0][0];
+
+        res.status(201).json({
+            success: true,
+            message: 'Meeting created successfully.',
+            meeting: {
+                id: newMeetingId,
+                meeting_type: meetingType,
+                quorum_total: quorumTotal
+            }
+        });
 
     } catch (err) {
         if (err.message && err.message.includes('UNIQUE constraint failed')) {
@@ -134,6 +144,7 @@ app.post('/api/meetings', authenticate, async (req, res) => {
         res.status(500).json({ error: 'Failed to create meeting.' });
     }
 });
+
 
 // --- ATTENDANCE ENDPOINTS ---
 app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
@@ -179,9 +190,10 @@ app.delete('/api/attendance/:spNumber/:date/:lot', authenticate, async (req, res
 });
 
 app.post('/api/attendance/batch', authenticate, async (req, res) => {
-    const { submissions } = req.body;
-    if (!submissions || !Array.isArray(submissions) || submissions.length === 0) {
-        return res.status(400).json({ error: 'No submissions provided.' });
+    const { meetingId, submissions } = req.body;
+
+    if (!meetingId || !submissions || !Array.isArray(submissions) || submissions.length === 0) {
+        return res.status(400).json({ error: 'meetingId and submissions array are required.' });
     }
 
     const db = getDb();
@@ -198,18 +210,17 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
             const plan_id = planIdMap.get(sub.sp);
             if (!plan_id) continue;
 
-            // **THE FIX**: Convert empty strings to NULL for better database compatibility.
             const rep_name = sub.rep_name || null;
 
             await tx.execute({
-                sql: `DELETE FROM attendance WHERE plan_id = ? AND lot = ? AND date(timestamp) = ?`,
-                args: [plan_id, sub.lot, sub.meetingDate]
+                sql: `DELETE FROM attendance WHERE meeting_id = ? AND lot = ?`,
+                args: [meetingId, sub.lot]
             });
 
             await tx.execute({
-                sql: `INSERT INTO attendance (plan_id, lot, owner_name, rep_name, is_financial, is_proxy)
-                      VALUES (?, ?, ?, ?, ?, ?)`,
-                args: [plan_id, sub.lot, sub.owner_name, rep_name, sub.is_financial ? 1 : 0, sub.is_proxy ? 1 : 0]
+                sql: `INSERT INTO attendance (plan_id, lot, owner_name, rep_name, is_financial, is_proxy, meeting_id)
+                      VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                args: [plan_id, sub.lot, sub.owner_name, rep_name, sub.is_financial ? 1 : 0, sub.is_proxy ? 1 : 0, meetingId]
             });
         }
 
@@ -219,8 +230,6 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
         if (tx) await tx.rollback();
         console.error('[BATCH SUBMIT ERROR]', {
             message: err.message,
-            code: err.code,
-            cause: err.cause,
             stack: err.stack,
         });
         res.status(500).json({ error: `An error occurred during batch submission: ${err.message}` });
@@ -479,7 +488,7 @@ app.patch('/api/users/:username/password', authenticate, async (req, res) => {
 app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) => {
     try {
         const { username } = req.params;
-        const { plan_id: spNumber } = req.body; 
+        const { plan_id: spNumber } = req.body;
         const db = getDb();
         let newPlanId = null;
         if (spNumber) {

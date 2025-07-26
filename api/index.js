@@ -51,15 +51,13 @@ app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
     try {
         const { spNumber, date } = req.params;
         const db = getDb();
-
         const result = await db.execute({
-            sql: `SELECT m.meeting_type, m.quorum_total
+            sql: `SELECT m.meeting_type, m.quorum_total 
                   FROM meetings m
                   JOIN strata_plans sp ON m.plan_id = sp.id
                   WHERE sp.sp_number = ? AND m.meeting_date = ?`,
             args: [spNumber, date],
         });
-
         if (result.rows.length > 0) {
             res.json({ success: true, meeting: rowsToObjects(result)[0] });
         } else {
@@ -77,25 +75,20 @@ app.post('/api/meetings', authenticate, async (req, res) => {
         if (!spNumber || !meetingDate || !meetingType || !quorumTotal) {
             return res.status(400).json({ error: 'Missing meeting details.' });
         }
-
         const db = getDb();
         const planResult = await db.execute({
             sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
             args: [spNumber],
         });
-
         if (planResult.rows.length === 0) {
             return res.status(404).json({ error: 'Strata plan not found.' });
         }
         const plan_id = planResult.rows[0][0];
-
         await db.execute({
             sql: 'INSERT INTO meetings (plan_id, meeting_date, meeting_type, quorum_total) VALUES (?, ?, ?, ?)',
             args: [plan_id, meetingDate, meetingType, quorumTotal],
         });
-
         res.status(201).json({ success: true, message: 'Meeting created successfully.' });
-
     } catch (err) {
         if (err.message && err.message.includes('UNIQUE constraint failed')) {
             return res.status(409).json({ error: 'A meeting for this plan already exists on this date.' });
@@ -105,19 +98,18 @@ app.post('/api/meetings', authenticate, async (req, res) => {
     }
 });
 
-// --- ATTENDANCE ENDPOINTS FOR OFFLINE QUEUE ---
+// --- ATTENDANCE ENDPOINTS (Corrected for the confirmed schema) ---
 
-// GET all synced attendance records for a specific meeting
+// GET all synced attendance records for a specific meeting date
 app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
     try {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
-            sql: `SELECT a.lot_number, a.name, a.is_financial, a.is_proxy, a.proxy_holder_lot, a.company_rep
-                  FROM meetings m
-                  JOIN attendance a ON m.plan_id = a.plan_id AND m.meeting_date = a.meeting_date
-                  JOIN strata_plans sp ON m.plan_id = sp.id
-                  WHERE sp.sp_number = ? AND m.meeting_date = ?`,
+            sql: `SELECT a.lot, a.owner_name, a.rep_name, a.is_financial, a.is_proxy
+                  FROM attendance a
+                  JOIN strata_plans sp ON a.plan_id = sp.id
+                  WHERE sp.sp_number = ? AND date(a.timestamp) = ?`,
             args: [spNumber, date]
         });
         res.json({ success: true, attendees: rowsToObjects(result) });
@@ -127,7 +119,7 @@ app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
     }
 });
 
-// DELETE a single synced attendance record
+// DELETE a single synced attendance record for a specific date
 app.delete('/api/attendance/:spNumber/:date/:lot', authenticate, async (req, res) => {
     try {
         const { spNumber, date, lot } = req.params;
@@ -142,8 +134,8 @@ app.delete('/api/attendance/:spNumber/:date/:lot', authenticate, async (req, res
         const plan_id = planResult.rows[0][0];
 
         await db.execute({
-            sql: 'DELETE FROM attendance WHERE plan_id = ? AND meeting_date = ? AND lot_number = ?',
-            args: [plan_id, date, lot]
+            sql: 'DELETE FROM attendance WHERE plan_id = ? AND lot = ? AND date(timestamp) = ?',
+            args: [plan_id, lot, date]
         });
         res.status(204).send();
     } catch (err) {
@@ -171,23 +163,18 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
 
         for (const sub of submissions) {
             const plan_id = planIdMap.get(sub.sp);
-            if (!plan_id) {
-                console.warn(`Skipping submission for unknown SP: ${sub.sp}`);
-                continue;
-            }
-            
-            const name = sub.proxyHolderLot ? `Proxy - Lot ${sub.proxyHolderLot}` : (sub.companyRep ? `${sub.names[0]} - ${sub.companyRep}` : sub.names.join(', '));
+            if (!plan_id) continue;
+
+            // "Upsert" logic: Delete any existing record for this lot on this day, then insert the new one.
+            await tx.execute({
+                sql: `DELETE FROM attendance WHERE plan_id = ? AND lot = ? AND date(timestamp) = ?`,
+                args: [plan_id, sub.lot, sub.meetingDate]
+            });
 
             await tx.execute({
-                sql: `INSERT INTO attendance (plan_id, meeting_date, lot_number, name, is_financial, is_proxy, proxy_holder_lot, company_rep)
-                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                      ON CONFLICT(plan_id, meeting_date, lot_number) DO UPDATE SET
-                          name = excluded.name,
-                          is_financial = excluded.is_financial,
-                          is_proxy = excluded.is_proxy,
-                          proxy_holder_lot = excluded.proxy_holder_lot,
-                          company_rep = excluded.company_rep;`,
-                args: [plan_id, sub.meetingDate, sub.lot_number, name, sub.is_financial, sub.is_proxy, sub.proxyHolderLot, sub.companyRep]
+                sql: `INSERT INTO attendance (plan_id, lot, owner_name, rep_name, is_financial, is_proxy)
+                      VALUES (?, ?, ?, ?, ?, ?)`,
+                args: [plan_id, sub.lot, sub.owner_name, sub.rep_name, sub.is_financial, sub.is_proxy]
             });
         }
 
@@ -201,7 +188,7 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
 });
 
 
-// --- Existing API Endpoints ---
+// --- User & Plan Endpoints ---
 app.post('/api/login', async (req, res) => {
   try {
     const db = getDb();
@@ -209,31 +196,24 @@ app.post('/api/login', async (req, res) => {
     if (!username || !password) {
       return res.status(400).json({ error: 'Missing credentials.' });
     }
-
     const result = await db.execute({
       sql: 'SELECT id, username, password_hash, role, plan_id FROM users WHERE username = ?',
       args: [username]
     });
-
     if (result.rows.length === 0) {
         return res.status(401).json({ error: 'Invalid username or password.' });
     }
-
     const userObject = rowsToObjects(result)[0];
-
     if (!bcrypt.compareSync(password, userObject.password_hash)) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
-    
     const { id, role, plan_id } = userObject;
     const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-
     res.json({
       success: true,
       token,
       user: { username, role, spAccess: plan_id }
     });
-
   } catch (err) {
     console.error('[LOGIN ERROR]', err);
     res.status(500).json({ error: 'Internal server error during login.' });
@@ -244,7 +224,6 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
   try {
     const db = getDb();
     const { role, plan_id } = req.user;
-
     let result;
     if (role === 'Admin') {
       result = await db.execute('SELECT sp_number, suburb FROM strata_plans ORDER BY sp_number');
@@ -254,7 +233,6 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
           args: [plan_id],
       });
     }
-
     const plans = rowsToObjects(result);
     res.json({ success: true, plans });
   } catch (err) {
@@ -263,27 +241,22 @@ app.get('/api/strata-plans', authenticate, async (req, res) => {
   }
 });
 
-
 app.get('/api/strata-plans/:planId/owners', authenticate, async (req, res) => {
     try {
         const { planId } = req.params;
         const db = getDb();
-
         const planResult = await db.execute({
             sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
             args: [planId],
         });
-
         if (planResult.rows.length === 0) {
             return res.status(404).json({ error: 'Strata plan not found.' });
         }
         const internalPlanId = planResult.rows[0][0];
-
         const ownersResult = await db.execute({
             sql: 'SELECT lot_number, unit_number, name_on_title, main_contact_name FROM strata_owners WHERE plan_id = ?',
             args: [internalPlanId],
         });
-
         const owners = rowsToObjects(ownersResult);
         res.json({ success: true, owners });
     } catch (err) {
@@ -297,19 +270,15 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
     if (!csvData) {
         return res.status(400).json({ error: 'No CSV data provided.' });
     }
-
     const db = getDb();
     let transaction;
     try {
         const parsed = Papa.parse(csvData, { header: false, skipEmptyLines: true });
         const rows = parsed.data.slice(1);
-
         if (rows.length === 0) {
             return res.status(400).json({ error: 'CSV file contains no data rows.' });
         }
-
         transaction = await db.transaction('write');
-
         for (const row of rows) {
             const sp_number = row[0];
             const lot_number = row[2];
@@ -325,7 +294,6 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
                 sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
                 args: [sp_number],
             });
-
             if (planResult.rows.length > 0) {
                 plan_id = planResult.rows[0][0];
             } else {
@@ -335,7 +303,6 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
                 });
                 plan_id = newPlanResult.rows[0][0];
             }
-
             await transaction.execute({
                 sql: `
                     INSERT INTO strata_owners (plan_id, lot_number, unit_number, name_on_title, main_contact_name, levy_entitlement)
@@ -349,10 +316,8 @@ app.post('/api/import-data', authenticate, isAdmin, async (req, res) => {
                 args: [plan_id, lot_number, unit_number, name_on_title, main_contact_name, levy_entitlement],
             });
         }
-
         await transaction.commit();
         res.json({ success: true, message: `Successfully imported/updated ${rows.length} records.` });
-
     } catch (err) {
         if (transaction) await transaction.rollback();
         console.error('[IMPORT ERROR]', err);
@@ -376,34 +341,26 @@ app.post('/api/users', authenticate, isAdmin, async (req, res) => {
     try {
         const { username, password, role, spAccess } = req.body;
         const db = getDb();
-
         if (!username || !password || !role) {
             return res.status(400).json({ error: 'Username, password, and role are required.' });
         }
-        
         let plan_id = null;
         if (role === 'User') {
             if (!spAccess) return res.status(400).json({ error: 'SP Access is required for the User role.' });
-            
             const planResult = await db.execute({
                 sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
                 args: [spAccess]
             });
-
             if (planResult.rows.length === 0) return res.status(400).json({ error: `Strata Plan with number ${spAccess} not found.` });
             plan_id = planResult.rows[0][0];
         }
-
         const salt = bcrypt.genSaltSync(10);
         const password_hash = bcrypt.hashSync(password, salt);
-
         await db.execute({
             sql: 'INSERT INTO users (username, password_hash, role, plan_id) VALUES (?, ?, ?, ?)',
             args: [username, password_hash, role, plan_id]
         });
-
         res.status(201).json({ success: true, message: 'User created successfully.' });
-
     } catch (err) {
         if (err.message && err.message.includes('UNIQUE constraint failed: users.username')) {
              return res.status(409).json({ error: `Username "${req.body.username}" already exists.` });
@@ -417,7 +374,6 @@ app.delete('/api/users/:username', authenticate, isAdmin, async (req, res) => {
     try {
         const { username } = req.params;
         if (username === req.user.username) return res.status(400).json({ error: 'Cannot delete your own user account.' });
-        
         const db = getDb();
         await db.execute({
             sql: 'DELETE FROM users WHERE username = ?',
@@ -434,20 +390,16 @@ app.patch('/api/users/:username/password', authenticate, async (req, res) => {
     try {
         const { username } = req.params;
         const { newPassword } = req.body;
-
         if (username !== req.user.username) return res.status(403).json({ error: 'Forbidden: You can only change your own password.' });
         if (!newPassword) return res.status(400).json({ error: 'New password is required.' });
-        
         const db = getDb();
         const salt = bcrypt.genSaltSync(10);
         const password_hash = bcrypt.hashSync(newPassword, salt);
-
         await db.execute({
             sql: 'UPDATE users SET password_hash = ? WHERE username = ?',
             args: [password_hash, username]
         });
-
-        res.json({ success: true, message: 'Password updated successfully.' });
+        res.json({ success: true, message: 'Password changed successfully.' });
     } catch (err) {
         console.error('[CHANGE PASSWORD ERROR]', err);
         res.status(500).json({ error: 'Failed to update password.' });
@@ -459,7 +411,6 @@ app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) =
         const { username } = req.params;
         const { plan_id: spNumber } = req.body; 
         const db = getDb();
-        
         let newPlanId = null;
         if (spNumber) {
             const planResult = await db.execute({
@@ -469,7 +420,6 @@ app.patch('/api/users/:username/plan', authenticate, isAdmin, async (req, res) =
             if (planResult.rows.length === 0) return res.status(400).json({ error: `Strata Plan with number ${spNumber} not found.`});
             newPlanId = planResult.rows[0][0];
         }
-
         await db.execute({
             sql: 'UPDATE users SET plan_id = ? WHERE username = ?',
             args: [newPlanId, username]
@@ -485,16 +435,13 @@ app.post('/api/users/:username/reset-password', authenticate, isAdmin, async (re
     try {
         const { username } = req.params;
         const defaultPassword = 'Password123!';
-        
         const salt = bcrypt.genSaltSync(10);
         const password_hash = bcrypt.hashSync(defaultPassword, salt);
         const db = getDb();
-
         await db.execute({
             sql: 'UPDATE users SET password_hash = ? WHERE username = ?',
             args: [password_hash, username]
         });
-
         res.json({ success: true, message: `Password for ${username} has been reset.` });
     } catch (err) {
         console.error('[RESET PASSWORD ERROR]', err);

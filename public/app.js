@@ -62,44 +62,48 @@ let isAppInitialized = false;
 function handleFormSubmit(event) {
     event.preventDefault();
     const form = event.target;
-    const lotNumberInput = document.getElementById('lot-number');
-    const companyRepInput = document.getElementById('company-rep');
-    const proxyHolderLotInput = document.getElementById('proxy-holder-lot');
     
+    // --- 1. Gather all inputs from the form ---
     const lot = lotNumberInput.value.trim();
     if (!currentStrataPlan || !lot) {
         showToast('Please select a plan and enter a lot number.', 'error');
         return;
     }
-
+    
+    const companyRep = document.getElementById('company-rep').value.trim();
+    const proxyHolderLot = document.getElementById('proxy-holder-lot').value.trim();
+    const isFinancial = document.getElementById('is-financial').checked;
+    const isProxy = document.getElementById('is-proxy').checked;
+    
     const companyNameHidden = document.getElementById('company-name-hidden');
     const companyName = companyNameHidden ? companyNameHidden.value : null;
     const selectedNames = Array.from(document.querySelectorAll('input[name="owner"]:checked')).map(cb => cb.value);
-    const isFinancial = document.getElementById('is-financial').checked;
-    const isProxy = document.getElementById('is-proxy').checked;
-    const companyRep = companyRepInput.value.trim();
-    const proxyHolderLot = proxyHolderLotInput.value.trim();
 
-    if (isProxy && !proxyHolderLot) {
+    // --- 2. Determine the primary owner name and perform validation ---
+    const owner_name = companyName || selectedNames.join(', ');
+
+    if (!isProxy && !owner_name) {
+        showToast('An owner must be selected or the lot must belong to a company.', 'error');
+        return;
+    }
+     if (isProxy && !proxyHolderLot) {
         showToast('Please enter the Proxy Holder Lot Number.', 'error');
         return;
     }
-    if (!isProxy && !companyName && selectedNames.length === 0) {
-        showToast('Please select at least one owner.', 'error');
-        return;
-    }
 
+    // --- 3. Construct the complete submission object ---
     const submission = {
         submissionId: `sub_${Date.now()}_${Math.random()}`,
         sp: currentStrataPlan,
         meetingDate: currentMeetingDate,
         lot: lot,
-        owner_name: companyName || selectedNames.join(', '),
+        owner_name: owner_name,
         rep_name: companyRep || (proxyHolderLot ? `Proxy by Lot ${proxyHolderLot}` : ''),
         is_financial: isFinancial,
         is_proxy: isProxy,
     };
 
+    // --- 4. Save to queue and update UI ---
     const queue = getSubmissionQueue();
     queue.push(submission);
     saveSubmissionQueue(queue);
@@ -132,13 +136,11 @@ async function syncSubmissions() {
     document.querySelectorAll('.delete-btn[data-type="queued"]').forEach(btn => btn.disabled = true);
 
     try {
-        // Step 1: Attempt to post the batch
         const postResult = await apiPost('/attendance/batch', { submissions: queue });
         if (!postResult || !postResult.success) {
             throw new Error(postResult.error || 'Batch submission failed at the first step.');
         }
 
-        // Step 2: Verify which records were actually saved
         const recordsToVerify = queue.map(sub => ({
             sp: sub.sp,
             lot: sub.lot,
@@ -154,7 +156,7 @@ async function syncSubmissions() {
             let currentQueue = getSubmissionQueue();
             const newQueue = currentQueue.filter(sub => {
                 const key = `${sub.sp}-${sub.lot}-${sub.meetingDate}`;
-                return !verifiedSet.has(key); // Keep items that were NOT verified
+                return !verifiedSet.has(key);
             });
 
             saveSubmissionQueue(newQueue);

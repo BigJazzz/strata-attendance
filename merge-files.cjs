@@ -3,7 +3,7 @@ const path = require('path');
 
 const outputFile = 'copilot.md';
 
-// 🔍 Maps file extensions to language tags
+// Maps file extensions to language tags
 const extensionToLanguage = {
   '.js': 'javascript',
   '.ts': 'typescript',
@@ -16,7 +16,7 @@ const extensionToLanguage = {
   '.txt': 'plaintext'
 };
 
-// 🛑 Files or folders to exclude
+// Files or folders to exclude
 const exclude = [
   'node_modules',
   '.git',
@@ -54,7 +54,7 @@ function getLanguageTag(filePath) {
   return extensionToLanguage[ext] || 'plaintext';
 }
 
-// 🧼 Clear the output file
+// Clear the output file
 fs.writeFileSync(outputFile, '');
 
 const allFiles = getAllFiles('./');
@@ -65,4 +65,4 @@ const markdownSections = allFiles.map(file => {
 });
 
 fs.writeFileSync(outputFile, markdownSections.join('\n'));
-console.log(`✅ Merged ${allFiles.length} files into ${outputFile}`);
+console.log(`Merged ${allFiles.length} files into ${outputFile}`);

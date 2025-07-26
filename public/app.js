@@ -63,7 +63,6 @@ function handleFormSubmit(event) {
     event.preventDefault();
     const form = event.target;
     
-    // --- 1. Gather all inputs from the form ---
     const lot = lotNumberInput.value.trim();
     if (!currentStrataPlan || !lot) {
         showToast('Please select a plan and enter a lot number.', 'error');
@@ -79,7 +78,6 @@ function handleFormSubmit(event) {
     const companyName = companyNameHidden ? companyNameHidden.value : null;
     const selectedNames = Array.from(document.querySelectorAll('input[name="owner"]:checked')).map(cb => cb.value);
 
-    // --- 2. Determine the primary owner name and perform validation ---
     const owner_name = companyName || selectedNames.join(', ');
 
     if (!isProxy && !owner_name) {
@@ -91,19 +89,27 @@ function handleFormSubmit(event) {
         return;
     }
 
-    // --- 3. Construct the complete submission object ---
+    // **THE FIX**: Implement the new logic for determining the rep_name.
+    let rep_name;
+    if (isProxy) {
+        rep_name = `Proxy by Lot ${proxyHolderLot}`;
+    } else if (companyName) {
+        rep_name = companyRep;
+    } else {
+        rep_name = 'N/A';
+    }
+
     const submission = {
         submissionId: `sub_${Date.now()}_${Math.random()}`,
         sp: currentStrataPlan,
         meetingDate: currentMeetingDate,
         lot: lot,
         owner_name: owner_name,
-        rep_name: companyRep || (proxyHolderLot ? `Proxy by Lot ${proxyHolderLot}` : ''),
+        rep_name: rep_name,
         is_financial: isFinancial,
         is_proxy: isProxy,
     };
 
-    // --- 4. Save to queue and update UI ---
     const queue = getSubmissionQueue();
     queue.push(submission);
     saveSubmissionQueue(queue);

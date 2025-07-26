@@ -36,7 +36,11 @@ export const renderOwnerCheckboxes = (lot, ownersCache) => {
     }
 
     if (companyName) {
-        checkboxContainer.innerHTML = `<p><b>Company Lot:</b> ${companyName}</p>`;
+        // **THE FIX**: Add a hidden input to store the company name for submission.
+        checkboxContainer.innerHTML = `
+            <p><b>Company Lot:</b> ${companyName}</p>
+            <input type="hidden" id="company-name-hidden" value="${companyName}">
+        `;
         companyRepGroup.style.display = 'block';
         return;
     }
@@ -163,11 +167,11 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
 
         let ownerRepName = item.owner_name;
         let companyName = isCompany ? item.rep_name : '';
-        let rowColor = '#d4e3c1'; // Default green for synced individual
+        let rowColor = '#d4e3c1'; 
 
-        if(isQueued) rowColor = '#f5e0df'; // Red for queued
-        else if(isProxy) rowColor = '#c1e1e3'; // Blue for synced proxy
-        else if(isCompany) rowColor = '#cbc1e3'; // Purple for synced company
+        if(isQueued) rowColor = '#f5e0df';
+        else if(isProxy) rowColor = '#c1e1e3';
+        else if(isCompany) rowColor = '#cbc1e3';
         
         const row = document.createElement('tr');
         row.style.backgroundColor = rowColor;

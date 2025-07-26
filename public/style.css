@@ -190,9 +190,6 @@ button:disabled {
 
 #sync-btn { 
     width: auto;
-    float: right; 
-    margin-top: -45px;
-    margin-bottom: 1rem;
 }
 
 #sync-btn:hover { 
@@ -221,10 +218,15 @@ button:disabled {
     padding-top: 1.5rem; 
 }
 
+.attendee-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
 .attendee-section h2 { 
-    display: flex; 
-    justify-content: space-between; 
-    align-items: center; 
+    margin: 0;
 }
 
 .attendee-table { 

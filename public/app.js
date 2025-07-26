@@ -32,7 +32,6 @@ import {
 } from './ui.js';
 
 // --- DOM Elements ---
-// It's good practice to declare all DOM element variables at the top.
 const loginForm = document.getElementById('login-form');
 const logoutBtn = document.getElementById('logout-btn');
 const changePasswordBtn = document.getElementById('change-password-btn');
@@ -59,7 +58,6 @@ let isAppInitialized = false;
 
 /**
  * Handles the main form submission for checking in an attendee.
- * Instead of sending to the server, it adds the submission to the local queue.
  */
 function handleFormSubmit(event) {
     event.preventDefault();
@@ -108,7 +106,6 @@ function handleFormSubmit(event) {
     updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
     showToast(`Lot ${lot} queued for submission.`, 'info');
     
-    // Reset form fields
     form.reset();
     document.getElementById('company-rep-group').style.display = 'none';
     document.getElementById('proxy-holder-group').style.display = 'none';
@@ -134,7 +131,7 @@ async function syncSubmissions() {
     document.querySelectorAll('.delete-btn[data-type="queued"]').forEach(btn => btn.disabled = true);
 
     try {
-        const result = await apiPost('/attendees/batch', { submissions: queue });
+        const result = await apiPost('/attendance/batch', { submissions: queue });
         if (result.success) {
             saveSubmissionQueue([]);
             showToast('Sync successful!', 'success');
@@ -147,7 +144,7 @@ async function syncSubmissions() {
     } finally {
         isSyncing = false;
         if (currentStrataPlan && currentMeetingDate) {
-            const data = await apiGet(`/attendees/${currentStrataPlan}/${currentMeetingDate}`);
+            const data = await apiGet(`/attendance/${currentStrataPlan}/${currentMeetingDate}`);
             if (data.success) {
                 currentSyncedAttendees = data.attendees.map(a => ({...a, status: 'synced'}));
             }
@@ -157,10 +154,8 @@ async function syncSubmissions() {
     }
 }
 
-
 /**
- * Handles deleting an attendee record. Differentiates between a queued item
- * (local deletion) and a synced item (remote deletion).
+ * Handles deleting an attendee record.
  */
 async function handleDelete(event) {
     const button = event.target;
@@ -181,7 +176,7 @@ async function handleDelete(event) {
         if (!confirm.confirmed) return;
         
         try {
-            await apiDelete(`/attendees/${currentStrataPlan}/${currentMeetingDate}/${lotNumber}`);
+            await apiDelete(`/attendance/${currentStrataPlan}/${currentMeetingDate}/${lotNumber}`);
             currentSyncedAttendees = currentSyncedAttendees.filter(a => a.lot_number != lotNumber);
             updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
             showToast(`Record for Lot ${lotNumber} deleted.`, 'success');
@@ -191,7 +186,6 @@ async function handleDelete(event) {
         }
     }
 }
-
 
 async function handlePlanChange(event) {
     const spNumber = event.target.value;
@@ -256,7 +250,7 @@ async function handlePlanChange(event) {
             localStorage.setItem(`strata_${spNumber}`, JSON.stringify(strataPlanCache));
         }
         
-        const attendeesData = await apiGet(`/attendees/${spNumber}/${meetingDate}`);
+        const attendeesData = await apiGet(`/attendance/${spNumber}/${meetingDate}`);
         if (attendeesData.success) {
             currentSyncedAttendees = attendeesData.attendees.map(a => ({...a, status: 'synced'}));
         }
@@ -281,10 +275,7 @@ async function initializeApp() {
     document.getElementById('login-section').classList.add('hidden');
     document.getElementById('main-app').classList.remove('hidden');
 
-    // --- Setup event listeners for elements that are ALWAYS visible in the main app ---
     document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
-    
-    // --- Setup event listeners for elements within the check-in tab ---
     document.getElementById('strata-plan-select').addEventListener('change', handlePlanChange);
     document.getElementById('lot-number').addEventListener('input', debounce((e) => {
         if (e.target.value.trim() && strataPlanCache) {
@@ -301,6 +292,7 @@ async function initializeApp() {
         document.getElementById('owner-label').style.display = isChecked ? 'none' : 'block';
     });
 
+
     const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
     if (user) {
         document.getElementById('user-display').textContent = user.username;
@@ -310,21 +302,19 @@ async function initializeApp() {
         }
     }
     
-    // Load plans from cache for a faster, offline-first experience.
     const cachedPlans = localStorage.getItem('strataPlans');
     if (cachedPlans) {
         try {
             renderStrataPlans(JSON.parse(cachedPlans));
         } catch (e) {
             console.error("Failed to parse cached strata plans", e);
-            localStorage.removeItem('strataPlans'); // Clear corrupted cache
+            localStorage.removeItem('strataPlans');
         }
     }
     
     try {
         const data = await apiGet('/strata-plans');
         if (data.success) {
-            // Cache the freshly fetched plans.
             localStorage.setItem('strataPlans', JSON.stringify(data.plans));
             renderStrataPlans(data.plans);
             
@@ -339,7 +329,6 @@ async function initializeApp() {
         }
     } catch (err) {
         console.error('Failed to initialize strata plans:', err);
-        // If the API fails but we have cached data, the user can still proceed.
         if (!cachedPlans) {
              showToast('Error: Could not load strata plans.', 'error');
         }
@@ -349,7 +338,6 @@ async function initializeApp() {
 }
 
 function setupAdminEventListeners() {
-    // --- Setup listeners for elements inside the admin tab ---
     const adminTabBtn = document.getElementById('admin-tab-btn');
     if (adminTabBtn) {
         adminTabBtn.addEventListener('click', (e) => {

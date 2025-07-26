@@ -53,7 +53,7 @@ app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
         const db = getDb();
 
         const result = await db.execute({
-            sql: `SELECT m.meeting_type, m.quorum_total 
+            sql: `SELECT m.meeting_type, m.quorum_total
                   FROM meetings m
                   JOIN strata_plans sp ON m.plan_id = sp.id
                   WHERE sp.sp_number = ? AND m.meeting_date = ?`,
@@ -105,29 +105,30 @@ app.post('/api/meetings', authenticate, async (req, res) => {
     }
 });
 
-// --- NEW ATTENDEE ENDPOINTS FOR OFFLINE QUEUE ---
+// --- ATTENDANCE ENDPOINTS FOR OFFLINE QUEUE ---
 
-// GET all synced attendees for a specific meeting
-app.get('/api/attendees/:spNumber/:date', authenticate, async (req, res) => {
+// GET all synced attendance records for a specific meeting
+app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
     try {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
             sql: `SELECT a.lot_number, a.name, a.is_financial, a.is_proxy, a.proxy_holder_lot, a.company_rep
-                  FROM attendees a
-                  JOIN strata_plans sp ON a.plan_id = sp.id
-                  WHERE sp.sp_number = ? AND a.meeting_date = ?`,
+                  FROM meetings m
+                  JOIN attendance a ON m.plan_id = a.plan_id AND m.meeting_date = a.meeting_date
+                  JOIN strata_plans sp ON m.plan_id = sp.id
+                  WHERE sp.sp_number = ? AND m.meeting_date = ?`,
             args: [spNumber, date]
         });
         res.json({ success: true, attendees: rowsToObjects(result) });
     } catch (err) {
-        console.error('[GET ATTENDEES ERROR]', err);
-        res.status(500).json({ error: 'Failed to fetch attendees.' });
+        console.error('[GET ATTENDANCE ERROR]', err);
+        res.status(500).json({ error: 'Failed to fetch attendance records.' });
     }
 });
 
-// DELETE a single synced attendee
-app.delete('/api/attendees/:spNumber/:date/:lot', authenticate, async (req, res) => {
+// DELETE a single synced attendance record
+app.delete('/api/attendance/:spNumber/:date/:lot', authenticate, async (req, res) => {
     try {
         const { spNumber, date, lot } = req.params;
         const db = getDb();
@@ -141,18 +142,18 @@ app.delete('/api/attendees/:spNumber/:date/:lot', authenticate, async (req, res)
         const plan_id = planResult.rows[0][0];
 
         await db.execute({
-            sql: 'DELETE FROM attendees WHERE plan_id = ? AND meeting_date = ? AND lot_number = ?',
+            sql: 'DELETE FROM attendance WHERE plan_id = ? AND meeting_date = ? AND lot_number = ?',
             args: [plan_id, date, lot]
         });
-        res.status(204).send(); // 204 No Content is appropriate for a successful deletion
+        res.status(204).send();
     } catch (err) {
-        console.error('[DELETE ATTENDEE ERROR]', err);
-        res.status(500).json({ error: 'Failed to delete attendee.' });
+        console.error('[DELETE ATTENDANCE ERROR]', err);
+        res.status(500).json({ error: 'Failed to delete attendance record.' });
     }
 });
 
 // POST a batch of submissions from the offline queue
-app.post('/api/attendees/batch', authenticate, async (req, res) => {
+app.post('/api/attendance/batch', authenticate, async (req, res) => {
     const { submissions } = req.body;
     if (!submissions || !Array.isArray(submissions) || submissions.length === 0) {
         return res.status(400).json({ error: 'No submissions provided.' });
@@ -161,7 +162,6 @@ app.post('/api/attendees/batch', authenticate, async (req, res) => {
     const db = getDb();
     const tx = await db.transaction('write');
     try {
-        // Get all plan IDs in one go to be efficient
         const spNumbers = [...new Set(submissions.map(s => s.sp))];
         const planIdsResult = await tx.execute({
             sql: `SELECT id, sp_number FROM strata_plans WHERE sp_number IN (${'?,'.repeat(spNumbers.length).slice(0, -1)})`,
@@ -176,11 +176,10 @@ app.post('/api/attendees/batch', authenticate, async (req, res) => {
                 continue;
             }
             
-            // Combine names for storage
             const name = sub.proxyHolderLot ? `Proxy - Lot ${sub.proxyHolderLot}` : (sub.companyRep ? `${sub.names[0]} - ${sub.companyRep}` : sub.names.join(', '));
 
             await tx.execute({
-                sql: `INSERT INTO attendees (plan_id, meeting_date, lot_number, name, is_financial, is_proxy, proxy_holder_lot, company_rep)
+                sql: `INSERT INTO attendance (plan_id, meeting_date, lot_number, name, is_financial, is_proxy, proxy_holder_lot, company_rep)
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                       ON CONFLICT(plan_id, meeting_date, lot_number) DO UPDATE SET
                           name = excluded.name,
@@ -203,7 +202,6 @@ app.post('/api/attendees/batch', authenticate, async (req, res) => {
 
 
 // --- Existing API Endpoints ---
-// ... (The rest of your api/index.js file remains unchanged)
 app.post('/api/login', async (req, res) => {
   try {
     const db = getDb();

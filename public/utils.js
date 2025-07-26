@@ -17,7 +17,6 @@ function getAuthToken() {
 async function apiRequest(path, { method = 'GET', body = null } = {}) {
   const token = getAuthToken();
   const headers = {
-    // Content-Type is not needed for GET or DELETE requests with no body
     ...(body && { 'Content-Type': 'application/json' }),
     ...(token && { Authorization: `Bearer ${token}` })
   };
@@ -30,7 +29,6 @@ async function apiRequest(path, { method = 'GET', body = null } = {}) {
 
   const response = await fetch(`${API_BASE}${path}`, config);
 
-  // Handle cases where the response is not JSON (e.g., 204 No Content)
   if (response.status === 204) {
       return { success: true };
   }
@@ -38,11 +36,9 @@ async function apiRequest(path, { method = 'GET', body = null } = {}) {
   const data = await response.json();
 
   if (!response.ok) {
-    // Throw an error with the message from the server's JSON response
     throw new Error(data.error || `Request failed with status ${response.status}`);
   }
 
-  // If the server indicates an auth failure, log the user out.
   if (data.error && data.error.includes('Authentication failed')) {
     handleLogout();
   }
@@ -84,7 +80,7 @@ export const debounce = (func, delay) => {
 };
 
 /**
- * Display a generic modal dialog with optional input.
+ * Display a generic modal dialog.
  */
 export function showModal(
   text,
@@ -191,9 +187,8 @@ export function showMeetingModal() {
   });
 }
 
-
 /**
- * Ensure there's a toast container in the DOM.
+ * Ensures there's a toast container in the DOM.
  */
 function ensureToastContainer() {
   let container = document.getElementById('toast-container');
@@ -206,7 +201,7 @@ function ensureToastContainer() {
 }
 
 /**
- * Show a toast notification.
+ * Shows a toast notification.
  */
 export function showToast(message, type = 'info', duration = 3000) {
   const container = ensureToastContainer();
@@ -223,7 +218,7 @@ export function showToast(message, type = 'info', duration = 3000) {
 }
 
 /**
- * Submission queue stored in localStorage for offline-first support.
+ * Submission queue helpers for offline support.
  */
 export const getSubmissionQueue = () =>
   JSON.parse(localStorage.getItem('submissionQueue') || '[]');
@@ -232,7 +227,7 @@ export const saveSubmissionQueue = queue =>
   localStorage.setItem('submissionQueue', JSON.stringify(queue));
 
 /**
- * Clear all strata plan caches from localStorage.
+ * Clears all strata plan related caches from localStorage.
  */
 export const clearStrataCache = () => {
   Object.keys(localStorage).forEach(key => {

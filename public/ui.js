@@ -1,6 +1,85 @@
 import { getSubmissionQueue } from './utils.js';
 
 /**
+ * Renders the owner checkboxes based on the lot number entered.
+ * This function handles parsing individual and company owner names.
+ */
+export const renderOwnerCheckboxes = (lot, ownersCache) => {
+    const checkboxContainer = document.getElementById('checkbox-container');
+    const companyRepGroup = document.getElementById('company-rep-group');
+    const ownerData = ownersCache[lot];
+
+    // Hide company rep field and clear previous state
+    companyRepGroup.style.display = 'none';
+    checkboxContainer.innerHTML = '';
+
+    if (!ownerData) {
+        checkboxContainer.innerHTML = '<p>Lot not found in this strata plan.</p>';
+        return;
+    }
+
+    // The owner data from the cache is [main_contact_name, name_on_title, unit_number]
+    const [mainContact, titleName] = ownerData;
+    const companyKeywords = /\b(P\/L|PTY LTD|LIMITED|INVESTMENTS|MANAGEMENT|SUPERANNUATION FUND)\b/i;
+    let namesToDisplay = new Set();
+
+    // Utility function to remove salutations like Mr, Mrs, etc.
+    const stripSalutation = (name) => {
+        if (!name) return '';
+        return name.replace(/^(Mr|Mrs|Ms|Miss|Dr)\.?\s+/i, '').trim();
+    };
+
+    // --- Company Logic ---
+    const mainContactIsCompany = mainContact && companyKeywords.test(mainContact);
+    const titleNameIsCompany = titleName && companyKeywords.test(titleName);
+    let companyName = '';
+
+    if (mainContactIsCompany) {
+        companyName = (titleNameIsCompany && titleName.length > mainContact.length) ? titleName : mainContact;
+    } else if (titleNameIsCompany) {
+        companyName = titleName;
+    }
+
+    // If a company was identified, display its name and show the representative input field.
+    if (companyName) {
+        checkboxContainer.innerHTML = `<p><b>Company Lot:</b> ${companyName}</p>`;
+        companyRepGroup.style.display = 'block';
+        return; // Stop further processing for company lots.
+    }
+
+    // --- Logic for Individual Owners ---
+    // Prioritize the name from 'mainContact' unless it's just initials, then use 'titleName'.
+    let primaryName = mainContact;
+    const initialOnlyRegex = /^(?:(Mr|Mrs|Ms|Miss|Dr)\.?\s+)?([A-Z]\.?\s*)+$/i;
+    if (mainContact && initialOnlyRegex.test(mainContact.trim()) && titleName) {
+        primaryName = titleName;
+    }
+
+    if (primaryName) {
+        primaryName.split(/\s*&\s*|\s+and\s+/i).forEach(name => {
+            namesToDisplay.add(stripSalutation(name));
+        });
+    }
+
+    // Fallback to titleName if no names were found from the primary source.
+    if (namesToDisplay.size === 0 && titleName) {
+        titleName.split(/\s*&\s*|\s+and\s+/i).forEach(name => {
+            namesToDisplay.add(stripSalutation(name));
+        });
+    }
+
+    // Generate the HTML for the checkboxes.
+    let checkboxHTML = '';
+    namesToDisplay.forEach(name => {
+        if (name) {
+            checkboxHTML += `<label class="checkbox-item"><input type="checkbox" name="owner" value="${name}"> ${name}</label>`;
+        }
+    });
+
+    checkboxContainer.innerHTML = checkboxHTML || '<p>No owner names found for this lot.</p>';
+};
+
+/**
  * Main function to update the entire display. It combines synced and queued
  * attendees and renders the table and quorum display.
  */

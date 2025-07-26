@@ -301,7 +301,6 @@ async function initializeApp() {
         document.getElementById('owner-label').style.display = isChecked ? 'none' : 'block';
     });
 
-
     const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
     if (user) {
         document.getElementById('user-display').textContent = user.username;
@@ -311,10 +310,24 @@ async function initializeApp() {
         }
     }
     
+    // Load plans from cache for a faster, offline-first experience.
+    const cachedPlans = localStorage.getItem('strataPlans');
+    if (cachedPlans) {
+        try {
+            renderStrataPlans(JSON.parse(cachedPlans));
+        } catch (e) {
+            console.error("Failed to parse cached strata plans", e);
+            localStorage.removeItem('strataPlans'); // Clear corrupted cache
+        }
+    }
+    
     try {
         const data = await apiGet('/strata-plans');
         if (data.success) {
+            // Cache the freshly fetched plans.
+            localStorage.setItem('strataPlans', JSON.stringify(data.plans));
             renderStrataPlans(data.plans);
+            
             if (user && user.role !== 'Admin' && data.plans.length === 1) {
                 const strataPlanSelect = document.getElementById('strata-plan-select');
                 strataPlanSelect.value = data.plans[0].sp_number;
@@ -326,7 +339,10 @@ async function initializeApp() {
         }
     } catch (err) {
         console.error('Failed to initialize strata plans:', err);
-        showToast('Error: Could not load strata plans.', 'error');
+        // If the API fails but we have cached data, the user can still proceed.
+        if (!cachedPlans) {
+             showToast('Error: Could not load strata plans.', 'error');
+        }
     }
     
     syncSubmissions();

@@ -236,7 +236,7 @@ export const saveSubmissionQueue = queue =>
  */
 export const clearStrataCache = () => {
   Object.keys(localStorage).forEach(key => {
-    if (key.startsWith('strata_')) {
+    if (key.startsWith('strata_') || key === 'strataPlans') {
       localStorage.removeItem(key);
     }
   });

@@ -1,96 +1,30 @@
 import { getSubmissionQueue } from './utils.js';
 
-// --- Final Version - Advanced Owner Checkbox Rendering Logic ---
-export const renderOwnerCheckboxes = (lot, ownersCache) => {
-    const checkboxContainer = document.getElementById('checkbox-container');
-    const companyRepGroup = document.getElementById('company-rep-group');
-    const ownerData = ownersCache[lot];
-
-    // Hide company rep field and clear previous state
-    companyRepGroup.style.display = 'none';
-    checkboxContainer.innerHTML = '';
-
-    if (!ownerData) {
-        checkboxContainer.innerHTML = '<p>Lot not found in this strata plan.</p>';
-        return;
-    }
-
-    const [mainContact, titleName] = ownerData;
-    const companyKeywords = /\b(P\/L|PTY LTD|LIMITED|INVESTMENTS|MANAGEMENT|SUPERANNUATION FUND)\b/i;
-    let namesToDisplay = new Set();
-
-    // Utility function to remove salutations
-    const stripSalutation = (name) => {
-        if (!name) return '';
-        return name.replace(/^(Mr|Mrs|Ms|Miss|Dr)\.?\s+/i, '').trim();
-    };
-
-    // --- New Company Logic ---
-    const mainContactIsCompany = mainContact && companyKeywords.test(mainContact);
-    const titleNameIsCompany = titleName && companyKeywords.test(titleName);
-    let companyName = '';
-
-    if (mainContactIsCompany) {
-        // If both are companies, choose the longer (more complete) name
-        if (titleNameIsCompany && titleName.length > mainContact.length) {
-            companyName = titleName;
-        } else {
-            companyName = mainContact;
-        }
-    } else if (titleNameIsCompany) {
-        // If only titleName is a company, use it
-        companyName = titleName;
-    }
-
-    // If a company was identified, display it and show the rep field
-    if (companyName) {
-        checkboxContainer.innerHTML = `<p><b>Company Lot:</b> ${companyName}</p>`;
-        companyRepGroup.style.display = 'block';
-        return; // Stop further processing
-    }
-
-    // --- Logic for Individual Owners (if not a company) ---
-    let primaryName = mainContact;
-    const initialOnlyRegex = /^(?:(Mr|Mrs|Ms|Miss|Dr)\.?\s+)?([A-Z]\.?\s*)+$/i;
-    if (mainContact && initialOnlyRegex.test(mainContact.trim()) && titleName) {
-        primaryName = titleName;
-    }
-
-    if (primaryName) {
-        primaryName.split(/\s*&\s*|\s+and\s+/i).forEach(name => {
-            namesToDisplay.add(stripSalutation(name));
-        });
-    }
-
-    if (namesToDisplay.size === 0 && titleName) {
-        titleName.split(/\s*&\s*|\s+and\s+/i).forEach(name => {
-            namesToDisplay.add(stripSalutation(name));
-        });
-    }
-
-    let checkboxHTML = '';
-    namesToDisplay.forEach(name => {
-        if (name) {
-            checkboxHTML += `<label class="checkbox-item"><input type="checkbox" name="owner" value="${name}"> ${name}</label>`;
-        }
-    });
-
-    checkboxContainer.innerHTML = checkboxHTML || '<p>No owner names found for this lot.</p>';
-};
-
-
-// --- UI & Rendering ---
+/**
+ * Main function to update the entire display. It combines synced and queued
+ * attendees and renders the table and quorum display.
+ */
 export const updateDisplay = (sp, currentSyncedAttendees, currentTotalLots, strataPlanCache) => {
     if (!sp) return;
-    const queuedAttendees = getSubmissionQueue().filter(s => s.sp === sp).map(s => ({...s, status: 'queued'}));
+    
+    // Get the local queue and filter for the current strata plan
+    const queuedAttendees = getSubmissionQueue()
+        .filter(s => s.sp === sp)
+        .map(s => ({...s, status: 'queued'}));
+
+    // Combine server data with local data
     const allAttendees = [...currentSyncedAttendees, ...queuedAttendees];
-    const attendedLots = new Set();
-    allAttendees.forEach(attendee => attendedLots.add(String(attendee.lot)));
+    
+    const attendedLots = new Set(allAttendees.map(attendee => String(attendee.lot_number)));
     
     renderAttendeeTable(allAttendees, strataPlanCache);
     updateQuorumDisplay(attendedLots.size, currentTotalLots);
+    updateSyncButton(); // Update the sync button state
 };
 
+/**
+ * Resets the UI to its initial state when a new plan is selected or on logout.
+ */
 export const resetUiOnPlanChange = () => {
     document.getElementById('attendee-table-body').innerHTML = `<tr><td colspan="5" style="text-align:center;">Select a plan to see attendees.</td></tr>`;
     document.getElementById('person-count').textContent = `(0 people)`;
@@ -105,6 +39,9 @@ export const resetUiOnPlanChange = () => {
     document.getElementById('company-rep-group').style.display = 'none';
 };
 
+/**
+ * Populates the strata plan dropdown from a list of plans.
+ */
 export const renderStrataPlans = (plans) => {
     const strataPlanSelect = document.getElementById('strata-plan-select');
     if (!plans) return;
@@ -125,12 +62,15 @@ export const renderStrataPlans = (plans) => {
     }
 };
 
+/**
+ * Renders the table of attendees, color-coding them based on their status.
+ */
 export const renderAttendeeTable = (attendees, strataPlanCache) => {
     const attendeeTableBody = document.getElementById('attendee-table-body');
     const personCountSpan = document.getElementById('person-count');
+    
     const syncedCount = attendees.filter(item => item.status !== 'queued').length;
-    const personLabel = (syncedCount === 1) ? 'person' : 'people';
-    personCountSpan.textContent = `(${syncedCount} ${personLabel})`;
+    personCountSpan.textContent = `(${syncedCount} ${syncedCount === 1 ? 'person' : 'people'})`;
     attendeeTableBody.innerHTML = '';
 
     if (!attendees || attendees.length === 0) {
@@ -138,44 +78,60 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
         return;
     }
 
-    attendees.sort((a, b) => a.lot - b.lot);
-    attendees.forEach(item => {
-        const lotData = strataPlanCache ? strataPlanCache[item.lot] : null;
-        const unitNumber = lotData ? (lotData[2] || 'N/A') : 'N/A';
+    attendees.sort((a, b) => a.lot_number - b.lot_number);
 
+    attendees.forEach(item => {
+        const lotData = strataPlanCache ? strataPlanCache[item.lot_number] : null;
+        const unitNumber = lotData ? (lotData[2] || 'N/A') : 'N/A';
         const isQueued = item.status === 'queued';
-        const name = item.name || (item.proxyHolderLot ? `Proxy - Lot ${item.proxyHolderLot}` : 'Unknown');
-        const isProxy = String(name).startsWith('Proxy - Lot');
-        const isCompany = !isProxy && (item.company || /\b(P\/L|Pty Ltd|Limited)\b/i.test(item.ownerRep));
+
+        let name = item.name;
+        // Handle queued items which have a different structure
+        if (isQueued) {
+            name = item.proxyHolderLot ? `Proxy - Lot ${item.proxyHolderLot}` : (item.companyRep ? `${item.names[0]} - ${item.companyRep}` : item.names.join(', '));
+        }
         
-        let ownerRepName = item.ownerRep || name;
-        let companyName = item.company || '';
-        let rowColor = isQueued ? '#f5e0df' : '#d4e3c1';
+        const isProxy = item.is_proxy || (isQueued && !!item.proxyHolderLot);
+        const isCompany = !isProxy && (item.company_rep || (isQueued && !!item.companyRep));
+
+        let ownerRepName = name;
+        let companyName = item.company_rep || '';
+        let rowColor = '#d4e3c1'; // Default green for synced individual
+
+        if(isQueued) rowColor = '#f5e0df'; // Red for queued
+        else if(isProxy) rowColor = '#c1e1e3'; // Blue for synced proxy
+        else if(isCompany) rowColor = '#cbc1e3'; // Purple for synced company
         
-        if (isProxy) {
-            ownerRepName = name;
-            rowColor = isQueued ? rowColor : '#c1e1e3';
-        } else if (isCompany) {
-            if (ownerRepName.includes(' - ')) {
-                [companyName, ownerRepName] = ownerRepName.split(' - ').map(s => s.trim());
+        if (isCompany) {
+            if (name.includes(' - ')) {
+                [companyName, ownerRepName] = name.split(' - ').map(s => s.trim());
             } else {
-                 companyName = item.company || item.ownerRep;
+                 companyName = item.company_rep || item.name;
                  ownerRepName = item.name;
             }
-             rowColor = isQueued ? rowColor : '#cbc1e3';
         }
 
         const row = document.createElement('tr');
         row.style.backgroundColor = rowColor;
+        
         const deleteButton = isQueued 
             ? `<button class="delete-btn" data-type="queued" data-submission-id="${item.submissionId}">Delete</button>`
-            : `<button class="delete-btn" data-type="synced" data-lot="${item.lot}">Delete</button>`;
+            : `<button class="delete-btn" data-type="synced" data-lot="${item.lot_number}">Delete</button>`;
         
-        row.innerHTML = `<td>${item.lot}</td><td>${unitNumber}</td><td>${ownerRepName}</td><td>${companyName}</td><td>${deleteButton}</td>`;
+        row.innerHTML = `
+            <td>${item.lot_number}</td>
+            <td>${unitNumber}</td>
+            <td>${ownerRepName}</td>
+            <td>${companyName}</td>
+            <td>${deleteButton}</td>
+        `;
         attendeeTableBody.appendChild(row);
     });
 };
 
+/**
+ * Updates the quorum display based on the number of attended lots.
+ */
 export const updateQuorumDisplay = (count = 0, total = 0) => {
     const quorumDisplay = document.getElementById('quorum-display');
     const percentage = total > 0 ? Math.floor((count / total) * 100) : 0;
@@ -185,4 +141,21 @@ export const updateQuorumDisplay = (count = 0, total = 0) => {
 
     quorumDisplay.innerHTML = `Financial Lots Quorum: ${percentage}%<br><small>(${count}/${total})</small>`;
     quorumDisplay.style.backgroundColor = isQuorumMet ? '#28a745' : '#dc3545';
+};
+
+/**
+ * Updates the sync button's text and disabled state.
+ */
+export const updateSyncButton = (isSyncing = false) => {
+    const syncBtn = document.getElementById('sync-btn');
+    if (!syncBtn) return;
+    
+    const queue = getSubmissionQueue();
+    if (queue.length > 0) {
+        syncBtn.disabled = isSyncing;
+        syncBtn.textContent = isSyncing ? 'Syncing...' : `Sync ${queue.length} Item${queue.length > 1 ? 's' : ''}`;
+    } else {
+        syncBtn.disabled = true;
+        syncBtn.textContent = 'Synced';
+    }
 };

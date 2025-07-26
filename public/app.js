@@ -10,82 +10,230 @@ import {
   handleImportCsv
 } from './auth.js';
 
-import { showModal, clearStrataCache, apiGet, apiPost, showToast, debounce, showMeetingModal } from './utils.js';
-import { renderStrataPlans, resetUiOnPlanChange, renderOwnerCheckboxes } from './ui.js';
+import { 
+    showModal, 
+    clearStrataCache, 
+    apiGet, 
+    apiPost, 
+    apiDelete,
+    showToast, 
+    debounce, 
+    showMeetingModal,
+    getSubmissionQueue,
+    saveSubmissionQueue
+} from './utils.js';
+
+import { 
+    renderStrataPlans, 
+    resetUiOnPlanChange, 
+    renderOwnerCheckboxes,
+    updateDisplay,
+    updateSyncButton
+} from './ui.js';
 
 // --- App State ---
-// Using a simple object for app state can be very effective.
 let currentStrataPlan = null;
+let currentMeetingDate = null;
 let strataPlanCache = {};
-let isAppInitialized = false; // Flag to prevent multiple initializations
-
-// --- Core App Logic ---
+let currentSyncedAttendees = [];
+let currentTotalLots = 0;
+let isSyncing = false;
+let autoSyncIntervalId = null;
+let isAppInitialized = false;
 
 /**
- * Handles the logic when a new strata plan is selected from the dropdown.
- * It checks for an existing meeting or prompts to create a new one,
- * then fetches and caches the owner data for that plan.
- * @param {Event} event - The change event from the select element.
+ * Handles the main form submission for checking in an attendee.
+ * Instead of sending to the server, it adds the submission to the local queue.
  */
+function handleFormSubmit(event) {
+    event.preventDefault();
+    const form = event.target;
+    const lotNumberInput = document.getElementById('lot-number');
+    const companyRepInput = document.getElementById('company-rep');
+    const proxyHolderLotInput = document.getElementById('proxy-holder-lot');
+    
+    const lot = lotNumberInput.value.trim();
+    if (!currentStrataPlan || !lot) {
+        showToast('Please select a plan and enter a lot number.', 'error');
+        return;
+    }
+
+    const selectedNames = Array.from(document.querySelectorAll('input[name="owner"]:checked')).map(cb => cb.value);
+    const isFinancial = document.getElementById('is-financial').checked;
+    const isProxy = document.getElementById('is-proxy').checked;
+    const companyRep = companyRepInput.value.trim();
+    const proxyHolderLot = proxyHolderLotInput.value.trim();
+
+    if (isProxy && !proxyHolderLot) {
+        showToast('Please enter the Proxy Holder Lot Number.', 'error');
+        return;
+    }
+    if (!isProxy && selectedNames.length === 0) {
+        showToast('Please select at least one owner.', 'error');
+        return;
+    }
+
+    const submission = {
+        submissionId: `sub_${Date.now()}_${Math.random()}`,
+        sp: currentStrataPlan,
+        meetingDate: currentMeetingDate,
+        lot_number: lot,
+        names: selectedNames,
+        is_financial: isFinancial,
+        is_proxy: isProxy,
+        proxyHolderLot: proxyHolderLot,
+        companyRep: companyRep
+    };
+
+    const queue = getSubmissionQueue();
+    queue.push(submission);
+    saveSubmissionQueue(queue);
+
+    updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
+    showToast(`Lot ${lot} queued for submission.`, 'info');
+    
+    // Reset form fields
+    form.reset();
+    document.getElementById('company-rep-group').style.display = 'none';
+    document.getElementById('proxy-holder-group').style.display = 'none';
+    document.getElementById('checkbox-container').innerHTML = '<p>Enter a Lot Number.</p>';
+    lotNumberInput.focus();
+}
+
+/**
+ * Sends the queued submissions to the server.
+ */
+async function syncSubmissions() {
+    if (isSyncing || !navigator.onLine) return;
+    const queue = getSubmissionQueue();
+    if (queue.length === 0) {
+        updateSyncButton();
+        return;
+    }
+
+    isSyncing = true;
+    updateSyncButton(true);
+    showToast(`Syncing ${queue.length} item(s)...`, 'info');
+
+    // Disable delete buttons for queued items during sync
+    document.querySelectorAll('.delete-btn[data-type="queued"]').forEach(btn => btn.disabled = true);
+
+    try {
+        const result = await apiPost('/attendees/batch', { submissions: queue });
+        if (result.success) {
+            // Clear the queue now that it's successfully submitted
+            saveSubmissionQueue([]);
+            showToast('Sync successful!', 'success');
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (error) {
+        console.error('[SYNC FAILED]', error);
+        showToast(`Sync failed. Items remain queued.`, 'error');
+    } finally {
+        isSyncing = false;
+        // Re-fetch the latest data from the server to get the true state
+        if (currentStrataPlan && currentMeetingDate) {
+            const data = await apiGet(`/attendees/${currentStrataPlan}/${currentMeetingDate}`);
+            if (data.success) {
+                currentSyncedAttendees = data.attendees.map(a => ({...a, status: 'synced'}));
+            }
+        }
+        updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
+        // Re-enable delete buttons
+        document.querySelectorAll('.delete-btn').forEach(btn => btn.disabled = false);
+    }
+}
+
+
+/**
+ * Handles deleting an attendee record. Differentiates between a queued item
+ * (local deletion) and a synced item (remote deletion).
+ */
+async function handleDelete(event) {
+    const button = event.target;
+    if (!button.matches('.delete-btn')) return;
+
+    const type = button.dataset.type;
+
+    if (type === 'queued') {
+        const submissionId = button.dataset.submissionId;
+        let queue = getSubmissionQueue();
+        queue = queue.filter(item => item.submissionId !== submissionId);
+        saveSubmissionQueue(queue);
+        updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
+        showToast('Queued item removed.', 'info');
+    } else if (type === 'synced') {
+        const lotNumber = button.dataset.lot;
+        const confirm = await showModal(`Are you sure you want to delete the record for Lot ${lotNumber}? This cannot be undone.`, { confirmText: 'Yes, Delete' });
+        if (!confirm.confirmed) return;
+        
+        try {
+            await apiDelete(`/attendees/${currentStrataPlan}/${currentMeetingDate}/${lotNumber}`);
+            // Remove from the local state immediately for a responsive UI
+            currentSyncedAttendees = currentSyncedAttendees.filter(a => a.lot_number != lotNumber);
+            updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
+            showToast(`Record for Lot ${lotNumber} deleted.`, 'success');
+        } catch (error) {
+            console.error('Delete failed:', error);
+            showToast(`Failed to delete record: ${error.message}`, 'error');
+        }
+    }
+}
+
+
 async function handlePlanChange(event) {
     const spNumber = event.target.value;
-    const strataPlanSelect = document.getElementById('strata-plan-select');
-    const lotNumberInput = document.getElementById('lot-number');
-    
-    resetUiOnPlanChange(); // Clear the UI first
+    resetUiOnPlanChange();
+
+    if (autoSyncIntervalId) clearInterval(autoSyncIntervalId);
 
     if (!spNumber) {
-        return; // Exit if the user selected the placeholder
+        currentStrataPlan = null;
+        currentMeetingDate = null;
+        return;
     }
     
     currentStrataPlan = spNumber;
-    // Save the selected plan to a cookie for persistence
     document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
     
     try {
-        // Show a modal to get meeting details from the user.
         const newMeetingData = await showMeetingModal();
         if (!newMeetingData) {
-            strataPlanSelect.value = ''; // Reset dropdown if user cancels
+            document.getElementById('strata-plan-select').value = '';
+            currentStrataPlan = null;
             return;
         }
 
         const { meetingDate, meetingType, quorumTotal } = newMeetingData;
+        currentMeetingDate = meetingDate;
 
-        // Check if a meeting already exists for this plan on the selected date.
         const meetingCheck = await apiGet(`/meetings/${spNumber}/${meetingDate}`);
         let meetingDetails;
 
         if (meetingCheck.success && meetingCheck.meeting) {
-            // If a meeting exists, resume it.
             meetingDetails = meetingCheck.meeting;
+            currentTotalLots = meetingDetails.quorum_total;
             showToast(`Resuming meeting: ${meetingDetails.meeting_type}`, 'info');
         } else {
-            // Otherwise, create a new meeting.
             await apiPost('/meetings', { spNumber, meetingDate, meetingType, quorumTotal });
-            meetingDetails = {
-                meeting_type: meetingType,
-                quorum_total: quorumTotal
-            };
+            meetingDetails = { meeting_type: meetingType, quorum_total: quorumTotal };
+            currentTotalLots = quorumTotal;
             showToast('New meeting started!', 'success');
         }
 
-        // Update the UI with the meeting details.
         const formattedDate = new Date(meetingDate + 'T00:00:00').toLocaleDateString('en-AU', {
             day: 'numeric', month: 'long', year: 'numeric'
         });
         document.getElementById('meeting-title').textContent = `${meetingDetails.meeting_type} - SP ${spNumber}`;
         document.getElementById('meeting-date').textContent = formattedDate;
 
-        // Fetch owner data, using localStorage as a cache to reduce API calls.
         const cachedData = localStorage.getItem(`strata_${spNumber}`);
         if (cachedData) {
             strataPlanCache = JSON.parse(cachedData);
         } else {
             const data = await apiGet(`/strata-plans/${spNumber}/owners`);
             if (!data.success) throw new Error(data.error);
-
-            // Transform the array of owner objects into a more efficient lookup map.
             if (Array.isArray(data.owners)) {
                 strataPlanCache = data.owners.reduce((acc, owner) => {
                     acc[owner.lot_number] = [owner.main_contact_name, owner.name_on_title, owner.unit_number];
@@ -94,38 +242,96 @@ async function handlePlanChange(event) {
             } else {
                 strataPlanCache = {};
             }
-            
             localStorage.setItem(`strata_${spNumber}`, JSON.stringify(strataPlanCache));
         }
         
-        // Enable the lot number input now that data is loaded.
-        lotNumberInput.disabled = false;
-        lotNumberInput.focus();
+        // Fetch current attendees for this meeting
+        const attendeesData = await apiGet(`/attendees/${spNumber}/${meetingDate}`);
+        if (attendeesData.success) {
+            currentSyncedAttendees = attendeesData.attendees.map(a => ({...a, status: 'synced'}));
+        }
+
+        updateDisplay(spNumber, currentSyncedAttendees, currentTotalLots, strataPlanCache);
+        document.getElementById('lot-number').disabled = false;
+        document.getElementById('lot-number').focus();
+
+        // Start auto-syncing
+        autoSyncIntervalId = setInterval(syncSubmissions, 60000); // Sync every 60 seconds
         
     } catch (err) {
         console.error(`Failed to load data for SP ${spNumber}:`, err);
         showToast(`Error loading data for SP ${spNumber}`, 'error');
-        resetUiOnPlanChange(); // Reset UI on error
+        resetUiOnPlanChange();
     }
 }
 
-/**
- * A debounced function to render owner checkboxes. This prevents the UI from
- * updating on every single keystroke in the lot number input, improving performance.
- */
-const debouncedRenderOwners = debounce((lotValue) => {
-    if (lotValue && strataPlanCache) {
-        renderOwnerCheckboxes(lotValue, strataPlanCache);
+async function initializeApp() {
+    if (isAppInitialized) return;
+    isAppInitialized = true;
+
+    document.getElementById('login-section').classList.add('hidden');
+    document.getElementById('main-app').classList.remove('hidden');
+
+    // Setup main event listeners
+    document.getElementById('logout-btn').addEventListener('click', handleLogout);
+    document.getElementById('strata-plan-select').addEventListener('change', handlePlanChange);
+    document.getElementById('lot-number').addEventListener('input', debounce((e) => {
+        if (e.target.value.trim() && strataPlanCache) {
+            renderOwnerCheckboxes(e.target.value.trim(), strataPlanCache);
+        }
+    }, 300));
+    document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
+    document.getElementById('change-password-btn').addEventListener('click', handleChangePassword);
+    document.getElementById('user-list-body').addEventListener('change', handleUserActions);
+    document.getElementById('attendance-form').addEventListener('submit', handleFormSubmit);
+    document.getElementById('attendee-table-body').addEventListener('click', handleDelete);
+    document.getElementById('sync-btn').addEventListener('click', syncSubmissions);
+
+
+    const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
+    if (user) {
+        document.getElementById('user-display').textContent = user.username;
+        if (user.role === 'Admin') {
+            document.getElementById('admin-panel').classList.remove('hidden');
+            setupAdminEventListeners();
+        }
     }
-}, 300);
+    
+    try {
+        const data = await apiGet('/strata-plans');
+        if (data.success) {
+            renderStrataPlans(data.plans);
+            if (user && user.role !== 'Admin' && data.plans.length === 1) {
+                const strataPlanSelect = document.getElementById('strata-plan-select');
+                strataPlanSelect.value = data.plans[0].sp_number;
+                strataPlanSelect.disabled = true;
+                strataPlanSelect.dispatchEvent(new Event('change'));
+            }
+        } else {
+            throw new Error(data.error || 'Failed to load strata plans.');
+        }
+    } catch (err) {
+        console.error('Failed to initialize strata plans:', err);
+        showToast('Error: Could not load strata plans.', 'error');
+    }
+    
+    // Perform an initial sync check on load
+    syncSubmissions();
+}
 
-// --- UI & App Initialization ---
+function setupAdminEventListeners() {
+    const adminTabBtn = document.getElementById('admin-tab-btn');
+    if (adminTabBtn) {
+        adminTabBtn.addEventListener('click', (e) => {
+            openTab(e, 'admin-tab');
+            loadUsers();
+        });
+    }
+    document.getElementById('add-user-btn').addEventListener('click', handleAddUser);
+    document.getElementById('clear-cache-btn').addEventListener('click', handleClearCache);
+    // CSV import listeners can be added here if re-implemented
+}
 
-/**
- * Handles switching between the main "Check-in" and "Admin" tabs.
- * @param {Event} evt - The click event from the tab button.
- * @param {string} tabName - The ID of the tab content to display.
- */
 function openTab(evt, tabName) {
     document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
     document.querySelectorAll('.tab-link').forEach(link => link.classList.remove('active'));
@@ -135,220 +341,48 @@ function openTab(evt, tabName) {
     }
 }
 
-/**
- * Sets up event listeners for elements that only exist in the admin panel.
- * This should only be called after confirming the user is an admin.
- */
-function setupAdminEventListeners() {
-    // Get admin panel DOM elements now that they are guaranteed to be visible
-    const importCsvBtn = document.getElementById('import-csv-btn');
-    const csvFileInput = document.getElementById('csv-file-input');
-    const csvDropZone = document.getElementById('csv-drop-zone');
-    const collapsibleToggle = document.querySelector('.collapsible-toggle');
-    const adminTabBtn = document.getElementById('admin-tab-btn');
-    const addUserBtn = document.getElementById('add-user-btn');
-    const clearCacheBtn = document.getElementById('clear-cache-btn');
-
-    // Listener for the admin tab itself
-    if (adminTabBtn) {
-        adminTabBtn.addEventListener('click', (e) => {
-            openTab(e, 'admin-tab');
-            loadUsers(); // Load user list when tab is opened
-        });
-    }
-    
-    // Listeners for other admin-only buttons
-    addUserBtn.addEventListener('click', handleAddUser);
-    clearCacheBtn.addEventListener('click', handleClearCache);
-
-    if (importCsvBtn) {
-        importCsvBtn.addEventListener('click', () => {
-            handleImportCsv(csvFileInput.files[0]);
-        });
-    }
-    
-    if (csvDropZone) {
-        csvDropZone.addEventListener('click', () => csvFileInput.click());
-        
-        csvFileInput.addEventListener('change', () => {
-            if(csvFileInput.files.length > 0) {
-                document.querySelector('.drop-zone p').textContent = `File selected: ${csvFileInput.files[0].name}`;
-            }
-        });
-
-        csvDropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            csvDropZone.classList.add('drag-over');
-        });
-
-        csvDropZone.addEventListener('dragleave', () => {
-            csvDropZone.classList.remove('drag-over');
-        });
-
-        csvDropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            csvDropZone.classList.remove('drag-over');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                csvFileInput.files = files;
-                document.querySelector('.drop-zone p').textContent = `File selected: ${files[0].name}`;
-                handleImportCsv(files[0]);
-            }
-        });
-    }
-    
-    if (collapsibleToggle) {
-        collapsibleToggle.addEventListener('click', function() {
-            this.classList.toggle('active');
-            const content = this.nextElementSibling;
-            if (content.style.maxHeight) {
-                content.style.maxHeight = null;
-            } else {
-                content.style.maxHeight = content.scrollHeight + "px";
-            }
-        });
-    }
-}
-
-/**
- * Main application initialization function. Hides the login form, shows the
- * main app, and fetches initial data like the list of strata plans.
- */
-async function initializeApp() {
-    // Prevent this function from running more than once
-    if (isAppInitialized) return;
-    isAppInitialized = true;
-
-    // Get main app DOM elements now that they are guaranteed to be visible
-    const loginSection = document.getElementById('login-section');
-    const mainApp = document.getElementById('main-app');
-    const logoutBtn = document.getElementById('logout-btn');
-    const strataPlanSelect = document.getElementById('strata-plan-select');
-    const lotNumberInput = document.getElementById('lot-number');
-    const checkInTabBtn = document.getElementById('check-in-tab-btn');
-    const changePasswordBtn = document.getElementById('change-password-btn');
-    const userListBody = document.getElementById('user-list-body');
-    const userDisplay = document.getElementById('user-display');
-    const adminPanel = document.getElementById('admin-panel');
-
-    loginSection.classList.add('hidden');
-    mainApp.classList.remove('hidden');
-
-    // --- Set up event listeners for the main application elements ---
-    logoutBtn.addEventListener('click', handleLogout);
-    strataPlanSelect.addEventListener('change', handlePlanChange);
-    lotNumberInput.addEventListener('input', (e) => {
-        debouncedRenderOwners(e.target.value.trim());
-    });
-    checkInTabBtn.addEventListener('click', (e) => openTab(e, 'check-in-tab'));
-    changePasswordBtn.addEventListener('click', handleChangePassword);
-    userListBody.addEventListener('change', handleUserActions);
-
-
-    const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
-    if (user) {
-        userDisplay.textContent = user.username;
-        // If the user is an Admin, show the admin panel and set up its specific event listeners.
-        if (user.role === 'Admin') {
-            adminPanel.classList.remove('hidden');
-            setupAdminEventListeners(); // This is where admin listeners are now safely added.
-        }
-    }
-    
-    try {
-        const data = await apiGet('/strata-plans');
-        if (data.success) {
-            renderStrataPlans(data.plans);
-            
-            // If a non-admin user only has access to one plan, auto-select it.
-            if (user && user.role !== 'Admin' && data.plans.length === 1) {
-                strataPlanSelect.value = data.plans[0].sp_number;
-                strataPlanSelect.disabled = true;
-                strataPlanSelect.dispatchEvent(new Event('change'));
-            } else {
-                strataPlanSelect.disabled = false;
-            }
-        } else {
-            throw new Error(data.error || 'Failed to load strata plans.');
-        }
-    } catch (err) {
-        console.error('Failed to initialize strata plans:', err);
-        showToast('Error: Could not load strata plans.', 'error');
-        strataPlanSelect.innerHTML = '<option value="">Error loading plans</option>';
-    }
-}
-
-// --- Admin Panel & Other Logic ---
-
-/**
- * Handles the "Clear Cache" button click, showing a confirmation modal first.
- */
-async function handleClearCache() {
-    const res = await showModal(
-        "Are you sure you want to clear all cached data? This includes unsynced submissions.",
-        { confirmText: 'Yes, Clear Data' }
-    );
-    if (res.confirmed) {
-        clearStrataCache();
-        localStorage.removeItem('submissionQueue');
-        document.cookie = 'selectedSP=; max-age=0; path=/;'; // Clear selected SP cookie
-        location.reload();
-    }
-}
-
-/**
- * Event delegation for user action dropdowns in the admin panel.
- * @param {Event} e - The change event from the select element.
- */
 function handleUserActions(e) {
     if (!e.target.matches('.user-actions-select')) return;
-    
     const select = e.target;
     const username = select.dataset.username;
     const action = select.value;
-
     if (!action) return;
-
     switch (action) {
-        case 'change_sp':
-            handleChangeSpAccess(username);
-            break;
-        case 'reset_password':
-            handleResetPassword(username);
-            break;
-        case 'remove':
-            handleRemoveUser(e); // Pass the event for target access
-            break;
+        case 'change_sp': handleChangeSpAccess(username); break;
+        case 'reset_password': handleResetPassword(username); break;
+        case 'remove': handleRemoveUser(e); break;
     }
-    select.value = ""; // Reset dropdown after action
+    select.value = "";
 }
 
-// --- Initial Load & Event Listeners ---
+function handleClearCache() {
+    showModal("Are you sure you want to clear all cached data? This includes unsynced submissions.", { confirmText: 'Yes, Clear' })
+        .then(res => {
+            if (res.confirmed) {
+                clearStrataCache();
+                saveSubmissionQueue([]);
+                document.cookie = 'selectedSP=; max-age=0; path=/;';
+                location.reload();
+            }
+        });
+}
 
-/**
- * This runs when the page's DOM is fully loaded. It sets up all the
- * primary event listeners for the application.
- */
 document.addEventListener('DOMContentLoaded', () => {
-  // Get the single element that is always present on page load.
   const loginForm = document.getElementById('login-form');
-
-  // Only the login form listener is needed here.
-  loginForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const loginResult = await handleLogin(e);
-    if (loginResult && loginResult.success) {
-        initializeApp();
-    }
-  });
+  if (loginForm) {
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const loginResult = await handleLogin(e);
+        if (loginResult && loginResult.success) {
+            initializeApp();
+        }
+      });
+  } else {
+      console.error("Fatal Error: The login form with id 'login-form' was not found in the DOM.");
+  }
   
-  // --- Auto-Login Check ---
-  // Check for an existing auth token in cookies to automatically log the user in.
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {
       initializeApp();
-  } else {
-      // If no token, the user sees the login screen by default.
-      // No extra action needed.
   }
 });

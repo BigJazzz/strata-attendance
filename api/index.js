@@ -13,7 +13,7 @@ function getDb() {
   if (cachedDb) return cachedDb;
   const url = process.env.TURSO_DATABASE_URL;
   const token = process.env.TURSO_AUTH_TOKEN;
-  cachedDb = createClient({ url, authToken: token, remoteOnly: true });
+  cachedDb = createClient({ url, authToken: token });
   return cachedDb;
 }
 
@@ -46,7 +46,7 @@ function isAdmin(req, res, next) {
     else return res.status(403).json({ error: 'Forbidden: Admin access required.' });
 }
 
-// --- Meeting Endpoints (Updated for Date Parameter) ---
+// --- Meeting Endpoints ---
 app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
     try {
         const { spNumber, date } = req.params;
@@ -102,6 +102,102 @@ app.post('/api/meetings', authenticate, async (req, res) => {
         }
         console.error('[CREATE MEETING ERROR]', err);
         res.status(500).json({ error: 'Failed to create meeting.' });
+    }
+});
+
+// --- NEW ATTENDEE ENDPOINTS FOR OFFLINE QUEUE ---
+
+// GET all synced attendees for a specific meeting
+app.get('/api/attendees/:spNumber/:date', authenticate, async (req, res) => {
+    try {
+        const { spNumber, date } = req.params;
+        const db = getDb();
+        const result = await db.execute({
+            sql: `SELECT a.lot_number, a.name, a.is_financial, a.is_proxy, a.proxy_holder_lot, a.company_rep
+                  FROM attendees a
+                  JOIN strata_plans sp ON a.plan_id = sp.id
+                  WHERE sp.sp_number = ? AND a.meeting_date = ?`,
+            args: [spNumber, date]
+        });
+        res.json({ success: true, attendees: rowsToObjects(result) });
+    } catch (err) {
+        console.error('[GET ATTENDEES ERROR]', err);
+        res.status(500).json({ error: 'Failed to fetch attendees.' });
+    }
+});
+
+// DELETE a single synced attendee
+app.delete('/api/attendees/:spNumber/:date/:lot', authenticate, async (req, res) => {
+    try {
+        const { spNumber, date, lot } = req.params;
+        const db = getDb();
+        const planResult = await db.execute({
+            sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
+            args: [spNumber],
+        });
+        if (planResult.rows.length === 0) {
+            return res.status(404).json({ error: 'Strata plan not found.' });
+        }
+        const plan_id = planResult.rows[0][0];
+
+        await db.execute({
+            sql: 'DELETE FROM attendees WHERE plan_id = ? AND meeting_date = ? AND lot_number = ?',
+            args: [plan_id, date, lot]
+        });
+        res.status(204).send(); // 204 No Content is appropriate for a successful deletion
+    } catch (err) {
+        console.error('[DELETE ATTENDEE ERROR]', err);
+        res.status(500).json({ error: 'Failed to delete attendee.' });
+    }
+});
+
+// POST a batch of submissions from the offline queue
+app.post('/api/attendees/batch', authenticate, async (req, res) => {
+    const { submissions } = req.body;
+    if (!submissions || !Array.isArray(submissions) || submissions.length === 0) {
+        return res.status(400).json({ error: 'No submissions provided.' });
+    }
+
+    const db = getDb();
+    const tx = await db.transaction('write');
+    try {
+        // Get all plan IDs in one go to be efficient
+        const spNumbers = [...new Set(submissions.map(s => s.sp))];
+        const planIdsResult = await tx.execute({
+            sql: `SELECT id, sp_number FROM strata_plans WHERE sp_number IN (${'?,'.repeat(spNumbers.length).slice(0, -1)})`,
+            args: spNumbers
+        });
+        const planIdMap = new Map(planIdsResult.rows.map(row => [row[1], row[0]]));
+
+        for (const sub of submissions) {
+            const plan_id = planIdMap.get(sub.sp);
+            if (!plan_id) {
+                console.warn(`Skipping submission for unknown SP: ${sub.sp}`);
+                continue;
+            }
+            
+            // Combine names for storage
+            const name = sub.proxyHolderLot ? `Proxy - Lot ${sub.proxyHolderLot}` : (sub.companyRep ? `${sub.names[0]} - ${sub.companyRep}` : sub.names.join(', '));
+
+            await tx.execute({
+                sql: `INSERT INTO attendees (plan_id, meeting_date, lot_number, name, is_financial, is_proxy, proxy_holder_lot, company_rep)
+                      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                      ON CONFLICT(plan_id, meeting_date, lot_number) DO UPDATE SET
+                          name = excluded.name,
+                          is_financial = excluded.is_financial,
+                          is_proxy = excluded.is_proxy,
+                          proxy_holder_lot = excluded.proxy_holder_lot,
+                          company_rep = excluded.company_rep;`,
+                args: [plan_id, sub.meetingDate, sub.lot_number, name, sub.is_financial, sub.is_proxy, sub.proxyHolderLot, sub.companyRep]
+            });
+        }
+
+        await tx.commit();
+        res.status(201).json({ success: true, message: 'Batch processed successfully.' });
+    } catch (err) {
+        await tx.rollback();
+        console.error('[BATCH SUBMIT ERROR]', err);
+        res.status(500).json({ error: `An error occurred during batch submission: ${err.message}` });
     }
 });
 

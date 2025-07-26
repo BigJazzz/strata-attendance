@@ -125,9 +125,9 @@ export function showModal(
 }
 
 /**
- * Display the specialized modal for setting up a new meeting.
+ * Display the specialized modal for setting up a new or existing meeting.
  */
-export function showMeetingModal() {
+export function showMeetingModal(existingMeetings = []) {
   const modal = document.getElementById('meeting-modal');
   const form = document.getElementById('meeting-form');
   const dateInput = document.getElementById('meeting-date-input');
@@ -136,8 +136,11 @@ export function showMeetingModal() {
   const otherInput = document.getElementById('other-meeting-type-input');
   const quorumLabel = document.getElementById('quorum-total-label');
   const quorumInput = document.getElementById('quorum-total-input');
-  const btnConfirm = document.getElementById('meeting-confirm-btn');
   const btnCancel = document.getElementById('meeting-cancel-btn');
+
+  const existingMeetingSection = document.getElementById('existing-meeting-section');
+  const existingMeetingSelect = document.getElementById('existing-meeting-select');
+  const resumeMeetingBtn = document.getElementById('resume-meeting-btn');
 
   const today = new Date();
   const year = today.getFullYear();
@@ -150,6 +153,19 @@ export function showMeetingModal() {
   otherGroup.classList.add('hidden');
   quorumLabel.textContent = 'Quorum Total';
   
+  if (existingMeetings.length > 0) {
+      existingMeetingSection.classList.remove('hidden');
+      existingMeetingSelect.innerHTML = '<option value="">Select a meeting to resume...</option>';
+      existingMeetings.forEach((m, index) => {
+          const option = document.createElement('option');
+          option.value = index;
+          option.textContent = `${m.meeting_date} - ${m.meeting_type}`;
+          existingMeetingSelect.appendChild(option);
+      });
+  } else {
+      existingMeetingSection.classList.add('hidden');
+  }
+
   modal.style.display = 'flex';
 
   return new Promise(resolve => {
@@ -174,9 +190,26 @@ export function showMeetingModal() {
 
         modal.style.display = 'none';
         resolve({
+            isNew: true,
             meetingDate: dateInput.value,
             meetingType: meetingType,
             quorumTotal: parseInt(quorumInput.value, 10)
+        });
+    };
+
+    resumeMeetingBtn.onclick = () => {
+        const selectedIndex = existingMeetingSelect.value;
+        if (selectedIndex === "") {
+            showToast('Please select a meeting to resume.', 'error');
+            return;
+        }
+        const selectedMeeting = existingMeetings[selectedIndex];
+        modal.style.display = 'none';
+        resolve({
+            isNew: false,
+            meetingDate: selectedMeeting.meeting_date,
+            meetingType: selectedMeeting.meeting_type,
+            quorumTotal: selectedMeeting.quorum_total
         });
     };
 

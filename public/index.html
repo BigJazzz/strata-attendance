@@ -14,25 +14,152 @@
     <div class="container">
         <!-- Login Section -->
         <div id="login-section">
-            <!-- ... existing login form ... -->
+            <h1>Login</h1>
+            <!-- The form was missing from this section. It has been added back. -->
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" required>
+                </div>
+                <button type="submit">Login</button>
+                <p id="login-status"></p>
+            </form>
         </div>
 
         <!-- Main App Section -->
         <div id="main-app" class="hidden">
-            <!-- ... existing main app structure ... -->
+            <div class="header-container">
+                 <h1>
+                    <span id="meeting-title">Attendance Form</span>
+                    <small id="meeting-date"></small>
+                </h1>
+                <div id="quorum-display">Quorum: ...%</div>
+            </div>
+
+             <div class="tab-container">
+                <button id="check-in-tab-btn" class="tab-link active">Check In</button>
+                <button id="admin-tab-btn" class="tab-link">Admin Panel</button>
+            </div>
+
+            <div id="check-in-tab" class="tab-content" style="display: block;">
+                <form id="attendance-form">
+                    <div class="form-group">
+                        <label for="strata-plan-select">Strata Plan</label>
+                        <div class="strata-plan-container">
+                            <select id="strata-plan-select" disabled>
+                                <option value="">Loading plans...</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group form-group-inline">
+                        <div class="lot-number-wrapper">
+                            <label for="lot-number">Lot Number</label>
+                            <input type="text" id="lot-number" required disabled>
+                        </div>
+                        <div class="proxy-checkbox-wrapper">
+                             <label class="checkbox-item"><input type="checkbox" id="is-proxy"> Voting by Proxy?</label>
+                        </div>
+                    </div>
+
+                    <hr>
+                    <div class="form-group">
+                        <label id="owner-label">Owner/s</label>
+                        <div id="checkbox-container">
+                            <p>Select a Strata Plan to begin.</p>
+                        </div>
+                    </div>
+                    <div class="form-group" id="company-rep-group" style="display: none;">
+                        <label for="company-rep">Company Representative</label>
+                        <input type="text" id="company-rep" placeholder="Enter representative's name (optional)">
+                    </div>
+                    <div class="form-group" id="proxy-holder-group" style="display: none;">
+                        <label for="proxy-holder-lot">Proxy holder lot number/name</label>
+                        <input type="text" id="proxy-holder-lot" placeholder="Enter lot number or name holding the proxy">
+                    </div>
+                    <div class="form-group">
+                        <label class="checkbox-item" id="financial-label"><input type="checkbox" id="is-financial"> Is Financial?</label>
+                    </div>
+                    <button type="submit" id="submit-button">Submit</button>
+                </form>
+
+                <div class="attendee-section">
+                    <h2>Current Attendees <span id="person-count"></span></h2>
+                    <button type="button" id="sync-btn" disabled>Sync</button>
+                    <table class="attendee-table">
+                        <thead>
+                            <tr>
+                                <th>Lot</th>
+                                <th>Unit</th>
+                                <th>Owner/Rep</th>
+                                <th>Company</th>
+                                <th>Delete</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendee-table-body"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="admin-tab" class="tab-content">
+                 <div class="user-management-section">
+                    <h2>User Management</h2>
+                    <p>Logged in as: <b id="user-display"></b></p>
+                    <button type="button" id="change-password-btn">Change My Password</button>
+                    <div id="admin-panel" class="hidden">
+                        <hr style="margin: 2rem 0;">
+                        <h3>Admin Panel</h3>
+                        <div class="collapsible-container">
+                            <button type="button" class="collapsible-toggle">Import CSV Data</button>
+                            <div class="collapsible-content">
+                                <div id="csv-drop-zone" class="drop-zone">
+                                    <p>Drag & drop a CSV file here, or click to select a file.</p>
+                                    <input type="file" id="csv-file-input" accept=".csv" class="hidden">
+                                </div>
+                                <button type="button" id="import-csv-btn">Import Selected CSV</button>
+                                <p id="import-status"></p>
+                            </div>
+                        </div>
+                        <table class="attendee-table">
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>Role</th>
+                                    <th>SP Access</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="user-list-body"></tbody>
+                        </table>
+                        <button type="button" id="add-user-btn" style="background-color: #28a745; margin-top: 1rem;">Add New User</button>
+                    </div>
+                </div>
+                <button type="button" id="clear-cache-btn">Clear Entire Cache</button>
+                <button type="button" id="logout-btn">Logout</button>
+            </div>
         </div>
     </div>
 
-    <!-- Custom Modal -->
+    <!-- Modals -->
     <div id="custom-modal" class="modal-overlay">
-        <!-- ... existing custom modal ... -->
+        <div class="modal-content">
+            <p id="modal-text"></p>
+            <input type="text" id="modal-input" class="modal-input" style="display: none;">
+            <div class="modal-buttons">
+                <button id="modal-cancel-btn" class="modal-cancel-btn">Cancel</button>
+                <button id="modal-confirm-btn" class="modal-confirm-btn">Confirm</button>
+            </div>
+        </div>
     </div>
-
-    <!-- NEW Meeting Setup Modal -->
+    
     <div id="meeting-modal" class="modal-overlay">
         <div class="modal-content">
             <h3>New Meeting Setup</h3>
-            <p>No meeting has been started for this plan on the selected date. Please provide the details below.</p>
+            <p>Please provide the meeting details below.</p>
             <form id="meeting-form">
                 <div class="form-group">
                     <label for="meeting-date-input">Meeting Date</label>

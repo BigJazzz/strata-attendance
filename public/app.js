@@ -115,7 +115,7 @@ function handleFormSubmit(event) {
 }
 
 /**
- * Sends the queued submissions to the server.
+ * Sends the queued submissions to the server and verifies success.
  */
 async function syncSubmissions() {
     if (isSyncing || !navigator.onLine) return;
@@ -132,18 +132,48 @@ async function syncSubmissions() {
     document.querySelectorAll('.delete-btn[data-type="queued"]').forEach(btn => btn.disabled = true);
 
     try {
-        const result = await apiPost('/attendance/batch', { submissions: queue });
-        // **THE FIX**: Only clear the queue if the server explicitly confirms success.
-        if (result && result.success) {
-            saveSubmissionQueue([]);
-            showToast('Sync successful!', 'success');
-        } else {
-            // Throw an error if success is not explicitly true, to prevent clearing the queue.
-            throw new Error(result.error || 'Sync failed: Server did not confirm success.');
+        // Step 1: Attempt to post the batch
+        const postResult = await apiPost('/attendance/batch', { submissions: queue });
+        if (!postResult || !postResult.success) {
+            throw new Error(postResult.error || 'Batch submission failed at the first step.');
         }
+
+        // Step 2: Verify which records were actually saved
+        const recordsToVerify = queue.map(sub => ({
+            sp: sub.sp,
+            lot: sub.lot,
+            meetingDate: sub.meetingDate
+        }));
+
+        const verifyResult = await apiPost('/attendance/verify', { records: recordsToVerify });
+        if (verifyResult && verifyResult.success) {
+            const verifiedSet = new Set(
+                verifyResult.verified.map(rec => `${rec.sp_number}-${rec.lot}-${rec.meeting_date}`)
+            );
+            
+            let currentQueue = getSubmissionQueue();
+            const newQueue = currentQueue.filter(sub => {
+                const key = `${sub.sp}-${sub.lot}-${sub.meetingDate}`;
+                return !verifiedSet.has(key); // Keep items that were NOT verified
+            });
+
+            saveSubmissionQueue(newQueue);
+
+            const successfullySyncedCount = verifiedSet.size;
+            if (successfullySyncedCount > 0) {
+                showToast(`Successfully synced ${successfullySyncedCount} item(s).`, 'success');
+            }
+            if (newQueue.length > 0) {
+                 showToast(`${newQueue.length} item(s) failed to sync and remain queued.`, 'error');
+            }
+
+        } else {
+            throw new Error(verifyResult.error || 'Verification step failed.');
+        }
+
     } catch (error) {
         console.error('[SYNC FAILED]', error);
-        showToast(`Sync failed. Items remain queued.`, 'error');
+        showToast(`Sync failed: ${error.message}. Items remain queued.`, 'error');
     } finally {
         isSyncing = false;
         if (currentStrataPlan && currentMeetingDate) {

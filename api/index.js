@@ -47,8 +47,6 @@ function isAdmin(req, res, next) {
 }
 
 // --- Meeting Endpoints ---
-
-// NEW: Get all meetings for a specific strata plan
 app.get('/api/meetings/:spNumber', authenticate, async (req, res) => {
     try {
         const { spNumber } = req.params;
@@ -200,6 +198,8 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
             const plan_id = planIdMap.get(sub.sp);
             if (!plan_id) continue;
 
+            const rep_name = sub.rep_name || '';
+
             await tx.execute({
                 sql: `DELETE FROM attendance WHERE plan_id = ? AND lot = ? AND date(timestamp) = ?`,
                 args: [plan_id, sub.lot, sub.meetingDate]
@@ -208,19 +208,55 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
             await tx.execute({
                 sql: `INSERT INTO attendance (plan_id, lot, owner_name, rep_name, is_financial, is_proxy)
                       VALUES (?, ?, ?, ?, ?, ?)`,
-                args: [plan_id, sub.lot, sub.owner_name, sub.rep_name, sub.is_financial ? 1 : 0, sub.is_proxy ? 1 : 0]
+                args: [plan_id, sub.lot, sub.owner_name, rep_name, sub.is_financial ? 1 : 0, sub.is_proxy ? 1 : 0]
             });
         }
 
         await tx.commit();
         res.status(201).json({ success: true, message: 'Batch processed successfully.' });
     } catch (err) {
-        await tx.rollback();
-        console.error('[BATCH SUBMIT ERROR]', err);
+        if (tx) await tx.rollback();
+        console.error('[BATCH SUBMIT ERROR]', {
+            message: err.message,
+            code: err.code,
+            cause: err.cause,
+            stack: err.stack,
+        });
         res.status(500).json({ error: `An error occurred during batch submission: ${err.message}` });
     }
 });
 
+// NEW ENDPOINT for verifying submissions
+app.post('/api/attendance/verify', authenticate, async (req, res) => {
+    const { records } = req.body;
+    if (!records || !Array.isArray(records) || records.length === 0) {
+        return res.status(400).json({ error: 'No records provided for verification.' });
+    }
+
+    const db = getDb();
+    try {
+        const conditions = [];
+        const args = [];
+        for (const record of records) {
+            conditions.push(`(sp.sp_number = ? AND a.lot = ? AND date(a.timestamp) = ?)`);
+            args.push(record.sp, record.lot, record.meetingDate);
+        }
+
+        const sql = `
+            SELECT sp.sp_number, a.lot, date(a.timestamp) as meeting_date
+            FROM attendance a
+            JOIN strata_plans sp ON a.plan_id = sp.id
+            WHERE ${conditions.join(' OR ')}
+        `;
+
+        const result = await db.execute({ sql, args });
+        res.json({ success: true, verified: rowsToObjects(result) });
+
+    } catch (err) {
+        console.error('[VERIFY ATTENDANCE ERROR]', err);
+        res.status(500).json({ error: 'Failed to verify attendance records.' });
+    }
+});
 
 // --- User & Plan Endpoints ---
 app.post('/api/login', async (req, res) => {

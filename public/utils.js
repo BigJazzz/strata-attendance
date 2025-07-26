@@ -159,7 +159,10 @@ export function showMeetingModal(existingMeetings = []) {
       existingMeetings.forEach((m, index) => {
           const option = document.createElement('option');
           option.value = index;
-          option.textContent = `${m.meeting_date} - ${m.meeting_type}`;
+          // Format the date from yyyy-MM-dd to dd-MM-yyyy
+          const [year, month, day] = m.meeting_date.split('-');
+          const formattedDate = `${day}-${month}-${year}`;
+          option.textContent = `${formattedDate} - ${m.meeting_type}`;
           existingMeetingSelect.appendChild(option);
       });
   } else {

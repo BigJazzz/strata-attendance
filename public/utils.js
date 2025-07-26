@@ -12,29 +12,37 @@ function getAuthToken() {
 }
 
 /**
- * Unified fetch helper for GET and POST requests.
+ * Unified fetch helper for API requests.
  */
 async function apiRequest(path, { method = 'GET', body = null } = {}) {
   const token = getAuthToken();
   const headers = {
-    'Content-Type': 'application/json',
+    // Content-Type is not needed for GET or DELETE requests with no body
+    ...(body && { 'Content-Type': 'application/json' }),
     ...(token && { Authorization: `Bearer ${token}` })
   };
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    ...(body ? { body: JSON.stringify(body) } : {})
-  });
+  const config = {
+      method,
+      headers,
+      ...(body && { body: JSON.stringify(body) })
+  };
 
-  // It's better to check for response.ok and then parse JSON
+  const response = await fetch(`${API_BASE}${path}`, config);
+
+  // Handle cases where the response is not JSON (e.g., 204 No Content)
+  if (response.status === 204) {
+      return { success: true };
+  }
+  
   const data = await response.json();
 
   if (!response.ok) {
-    // Throw an error with the message from the server's JSON response if available
+    // Throw an error with the message from the server's JSON response
     throw new Error(data.error || `Request failed with status ${response.status}`);
   }
 
+  // If the server indicates an auth failure, log the user out.
   if (data.error && data.error.includes('Authentication failed')) {
     handleLogout();
   }
@@ -55,6 +63,14 @@ export function apiGet(path) {
 export function apiPost(path, body) {
   return apiRequest(path, { method: 'POST', body });
 }
+
+/**
+ * Helper for DELETE requests.
+ */
+export function apiDelete(path) {
+    return apiRequest(path, { method: 'DELETE' });
+}
+
 
 /**
  * Debounce utility to limit how often a function runs.
@@ -127,16 +143,14 @@ export function showMeetingModal() {
   const btnConfirm = document.getElementById('meeting-confirm-btn');
   const btnCancel = document.getElementById('meeting-cancel-btn');
 
-  // Set default date to today in YYYY-MM-DD format
   const today = new Date();
   const year = today.getFullYear();
   const month = String(today.getMonth() + 1).padStart(2, '0');
   const day = String(today.getDate()).padStart(2, '0');
   const todayStr = `${year}-${month}-${day}`;
   
-  // Reset form state each time it's opened
   form.reset();
-  dateInput.value = todayStr; // Set default date
+  dateInput.value = todayStr;
   otherGroup.classList.add('hidden');
   quorumLabel.textContent = 'Quorum Total';
   
@@ -172,7 +186,7 @@ export function showMeetingModal() {
 
     btnCancel.onclick = () => {
         modal.style.display = 'none';
-        resolve(null); // Resolve with null if the user cancels
+        resolve(null);
     };
   });
 }

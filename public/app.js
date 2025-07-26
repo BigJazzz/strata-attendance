@@ -84,7 +84,6 @@ function handleFormSubmit(event) {
         showToast('Please enter the Proxy Holder Lot Number.', 'error');
         return;
     }
-    // Updated validation to ensure either an individual or a company is checked in.
     if (!isProxy && !companyName && selectedNames.length === 0) {
         showToast('Please select at least one owner.', 'error');
         return;
@@ -95,7 +94,6 @@ function handleFormSubmit(event) {
         sp: currentStrataPlan,
         meetingDate: currentMeetingDate,
         lot: lot,
-        // **THE FIX**: Prioritize the hidden company name if it exists.
         owner_name: companyName || selectedNames.join(', '),
         rep_name: companyRep || (proxyHolderLot ? `Proxy by Lot ${proxyHolderLot}` : ''),
         is_financial: isFinancial,
@@ -135,11 +133,13 @@ async function syncSubmissions() {
 
     try {
         const result = await apiPost('/attendance/batch', { submissions: queue });
-        if (result.success) {
+        // **THE FIX**: Only clear the queue if the server explicitly confirms success.
+        if (result && result.success) {
             saveSubmissionQueue([]);
             showToast('Sync successful!', 'success');
         } else {
-            throw new Error(result.error);
+            // Throw an error if success is not explicitly true, to prevent clearing the queue.
+            throw new Error(result.error || 'Sync failed: Server did not confirm success.');
         }
     } catch (error) {
         console.error('[SYNC FAILED]', error);

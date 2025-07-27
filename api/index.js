@@ -192,48 +192,32 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
     const db = getDb();
     const tx = await db.transaction('write');
     try {
-        // --- TESTING CODE: PROCESS ONLY THE FIRST ITEM ---
-        const sub = submissions[0];
-        const spNumbers = [sub.sp];
-        const planIdsResult = await tx.execute({
-            sql: `SELECT id, sp_number FROM strata_plans WHERE sp_number IN (?)`,
-            args: spNumbers
-        });
-        const planIdMap = new Map(planIdsResult.rows.map(row => [row[1], row[0]]));
-        const plan_id = planIdMap.get(sub.sp);
-
-        if (plan_id) {
-            const rep_name = sub.rep_name || null;
-
-            await tx.execute({
-                sql: `DELETE FROM attendance
-                      WHERE meeting_id = ? AND lot = ? AND owner_name = ? AND rep_name = ?`,
-                args: [meetingId, sub.lot, sub.owner_name, rep_name]
-            });
-
-            await tx.execute({
-                sql: `INSERT INTO attendance (plan_id, lot, owner_name, rep_name, is_financial, is_proxy, meeting_id)
-                      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                args: [plan_id, sub.lot, sub.owner_name, rep_name, sub.is_financial ? 1 : 0, sub.is_proxy ? 1 : 0, meetingId]
-            });
-        }
-        // --- END TESTING CODE ---
-
-
-        /* --- ORIGINAL BATCH LOOP (COMMENTED OUT FOR TESTING) ---
-        const spNumbers = [...new Set(submissions.map(s => s.sp))];
+        // Ensure all strata plan numbers are strings for consistent lookup
+        const spNumbers = [...new Set(submissions.map(s => String(s.sp)))];
+        
         const planIdsResult = await tx.execute({
             sql: `SELECT id, sp_number FROM strata_plans WHERE sp_number IN (${'?,'.repeat(spNumbers.length).slice(0, -1)})`,
             args: spNumbers
         });
-        const planIdMap = new Map(planIdsResult.rows.map(row => [row[1], row[0]]));
+
+        // Create a Map where the keys are explicitly strings
+        const planIdMap = new Map(
+            planIdsResult.rows.map(row => [String(row[1]), row[0]])
+        );
 
         for (const sub of submissions) {
-            const plan_id = planIdMap.get(sub.sp);
-            if (!plan_id) continue;
+            // THE FIX: Convert sub.sp to a string here to ensure the lookup key matches the map's key type.
+            const plan_id = planIdMap.get(String(sub.sp));
+            
+            if (!plan_id) {
+                console.warn(`[SKIPPED] SP number not found in map: "${sub.sp}"`);
+                continue; // Skip this submission if its strata plan doesn't exist
+            }
 
             const rep_name = sub.rep_name || null;
 
+            // This "delete-then-insert" pattern ensures that resubmitting the same attendee
+            // updates their record instead of creating a duplicate.
             await tx.execute({
                 sql: `DELETE FROM attendance
                       WHERE meeting_id = ? AND lot = ? AND owner_name = ? AND rep_name = ?`,
@@ -246,10 +230,10 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
                 args: [plan_id, sub.lot, sub.owner_name, rep_name, sub.is_financial ? 1 : 0, sub.is_proxy ? 1 : 0, meetingId]
             });
         }
-        */
 
         await tx.commit();
         res.status(201).json({ success: true, message: 'Batch processed successfully.' });
+        
     } catch (err) {
         if (tx) await tx.rollback();
         console.error('[BATCH SUBMIT ERROR]', {
@@ -259,7 +243,6 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
         res.status(500).json({ error: `An error occurred during batch submission: ${err.message}` });
     }
 });
-
 
 app.post('/api/attendance/verify', authenticate, async (req, res) => {
     const { records } = req.body;

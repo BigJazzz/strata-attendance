@@ -105,7 +105,6 @@ export const resetUiOnPlanChange = () => {
     document.getElementById('financial-label').lastChild.nodeValue = " Is Financial?";
     document.getElementById('meeting-title').textContent = 'Attendance Form';
     
-    // Hide the meeting date button on reset
     const meetingDateBtn = document.getElementById('meeting-date-btn');
     meetingDateBtn.textContent = '';
     meetingDateBtn.style.display = 'none';
@@ -161,14 +160,25 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
 
         const isProxy = item.is_proxy;
         const isCompany = !isProxy && item.rep_name && item.rep_name !== 'N/A';
+        
+        let ownerRepName;
+        let companyName = ''; // Default to empty
+        let rowColor = '#d4e3c1'; // Default color for regular owner
 
-        let ownerRepName = item.owner_name;
-        let companyName = isCompany ? item.rep_name : '';
-        let rowColor = '#d4e3c1';
+        if (isProxy) {
+            ownerRepName = item.rep_name; // Show "Proxy - Lot X" in the main name column
+            rowColor = '#c1e1e3'; // Proxy color
+        } else if (isCompany) {
+            ownerRepName = item.owner_name; // Show company name
+            companyName = item.rep_name; // Show representative's name in the company column
+            rowColor = '#cbc1e3'; // Company color
+        } else {
+            ownerRepName = item.owner_name; // Regular owner name
+        }
 
-        if(isQueued) rowColor = '#f5e0df';
-        else if(isProxy) rowColor = '#c1e1e3';
-        else if(isCompany) rowColor = '#cbc1e3';
+        if (isQueued) {
+            rowColor = '#f5e0df'; // Queued color overrides others
+        }
 
         const row = document.createElement('tr');
         row.style.backgroundColor = rowColor;

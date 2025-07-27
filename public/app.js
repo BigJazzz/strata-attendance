@@ -80,11 +80,21 @@ function handleFormSubmit(event) {
     const companyName = companyNameHidden ? companyNameHidden.value : null;
     const selectedNames = Array.from(document.querySelectorAll('input[name="owner"]:checked')).map(cb => cb.value);
 
-    const owner_name = companyName || selectedNames.join(', ');
+    let owner_name = companyName || selectedNames.join(', ');
 
-    // Stricter validation to ensure owner_name is always present.
+    // If it's a proxy vote, the owner name isn't selected in the UI.
+    // We must retrieve it from the cache to know who is GIVING the proxy.
+    if (isProxy) {
+        const ownerData = strataPlanCache[lot];
+        if (ownerData) {
+            // Use the main contact or title name from the cache.
+            owner_name = ownerData[0] || ownerData[1];
+        }
+    }
+
+    // Now, run validation with the potentially retrieved owner_name.
     if (!owner_name) {
-        showToast('An owner must be selected before assigning a proxy.', 'error');
+        showToast(`Could not find owner data for Lot ${lot}. Please check the lot number.`, 'error');
         return;
     }
      if (isProxy && !proxyHolderLot) {
@@ -123,7 +133,7 @@ function handleFormSubmit(event) {
     document.getElementById('proxy-holder-group').style.display = 'none';
     document.getElementById('checkbox-container').innerHTML = '<p>Enter a Lot Number.</p>';
     
-    // FIX: Manually reset the UI for the owner's box to ensure it's visible for the next entry.
+    // Manually reset the UI for the owner's box to ensure it's visible for the next entry.
     document.getElementById('checkbox-container').style.display = 'block';
     document.getElementById('owner-label').style.display = 'block';
 

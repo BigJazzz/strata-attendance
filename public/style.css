@@ -15,7 +15,7 @@ body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
 }
 
-/* --- New Collapsible Styles --- */
+/* --- Collapsible Styles --- */
 .collapsible-toggle {
     background-color: #6c757d;
     color: white;
@@ -72,10 +72,11 @@ body {
     color: #6c757d;
 }
 
+/* --- Header Layout Fix --- */
 .header-container { 
     display: flex; 
     justify-content: space-between; 
-    align-items: center; 
+    align-items: flex-start; /* Align items to the top */
     margin-bottom: 1rem; 
     flex-wrap: wrap; 
     gap: 1rem; 
@@ -88,14 +89,27 @@ h1, h2 {
 h1 { 
     font-size: 1.75rem; 
     margin: 0; 
-    flex-grow: 1; 
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
 }
 
-h1 small { 
-    display: block; 
-    font-size: 0.8rem; 
-    font-weight: normal; 
-    color: #6c757d; 
+.meeting-date-btn {
+    width: auto; /* Fit button to text content */
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    background-color: #007bff;
+    border: none;
+    color: white;
+    cursor: pointer;
+    border-radius: 4px;
+    line-height: 1.2;
+}
+
+.meeting-date-btn:hover {
+    background-color: #0056b3;
 }
 
 .hidden { 
@@ -108,7 +122,8 @@ h1 small {
     font-weight: bold; 
     color: white; 
     text-align: center; 
-    line-height: 1.2; 
+    line-height: 1.2;
+    flex-shrink: 0; /* Prevent the box from shrinking */
 }
 
 #quorum-display small { 
@@ -126,7 +141,7 @@ label {
     font-weight: bold; 
 }
 
-input[type="text"], input[type="password"], select { 
+input[type="text"], input[type="password"], select, input[type="number"], input[type="date"] { 
     width: 100%; 
     padding: 0.75rem; 
     border: 1px solid #ccc; 
@@ -174,26 +189,17 @@ button:disabled {
     cursor: not-allowed; 
 }
 
-#email-pdf-btn {
-    width: auto;
-    margin-top: 0;
-}
-
-#email-pdf-btn, #change-meeting-type-btn, #import-csv-btn { 
+#import-csv-btn { 
     background-color: #17a2b8; 
     margin-top: 1rem; 
 }
 
-#email-pdf-btn:hover, #change-meeting-type-btn:hover, #import-csv-btn:hover { 
+#import-csv-btn:hover { 
     background-color: #138496; 
 }
 
 #sync-btn { 
     width: auto;
-}
-
-#sync-btn:hover { 
-    background-color: #5a6268; 
 }
 
 #clear-cache-btn, #logout-btn { 
@@ -212,7 +218,7 @@ button:disabled {
     min-height: 1.2em; 
 }
 
-.attendee-section, .user-management-section { 
+.attendee-section { 
     margin-top: 2rem; 
     border-top: 1px solid #eee; 
     padding-top: 1.5rem; 
@@ -252,7 +258,8 @@ button:disabled {
     border: none; 
     padding: 5px 10px; 
     border-radius: 4px; 
-    cursor: pointer; 
+    cursor: pointer;
+    width: auto;
 }
 
 #company-rep-group, #proxy-holder-group { 
@@ -399,34 +406,26 @@ button:disabled {
     border-radius: 0 0 8px 8px;
 }
 
-.report-date-selector {
-    margin-top: 1.5rem;
-    margin-bottom: 0.5rem;
-    display: flex; 
-    align-items: flex-end; 
-    gap: 0.5rem; 
-}
-
-.report-date-selector label {
-    font-weight: bold;
-    margin-bottom: 0;
-    display: block;
-    flex-shrink: 0;
-}
-
-#report-date {
-    width: auto; 
-    flex-grow: 1; 
-}
-
 .strata-plan-container {
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-#change-meeting-type-btn {
-    width: auto;
-    margin-top: 0;
-    flex-shrink: 0;
+/* Media query for mobile stacking */
+@media (max-width: 600px) {
+    .header-container {
+        flex-direction: column;
+        align-items: stretch; /* Make items full width */
+    }
+
+    h1 {
+        align-items: center; /* Center title and button */
+        text-align: center;
+    }
+
+    #quorum-display {
+        width: 100%; /* Make quorum box full width on mobile */
+        box-sizing: border-box;
+    }
 }

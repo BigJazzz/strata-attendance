@@ -36,7 +36,6 @@ export const renderOwnerCheckboxes = (lot, ownersCache) => {
     }
 
     if (companyName) {
-        // **THE FIX**: Add a hidden input to store the company name for submission.
         checkboxContainer.innerHTML = `
             <p><b>Company Lot:</b> ${companyName}</p>
             <input type="hidden" id="company-name-hidden" value="${companyName}">
@@ -78,15 +77,15 @@ export const renderOwnerCheckboxes = (lot, ownersCache) => {
  */
 export const updateDisplay = (sp, currentSyncedAttendees, currentTotalLots, strataPlanCache) => {
     if (!sp) return;
-    
+
     const queuedAttendees = getSubmissionQueue()
         .filter(s => s.sp === sp)
         .map(s => ({...s, status: 'queued'}));
 
     const allAttendees = [...currentSyncedAttendees, ...queuedAttendees];
-    
+
     const attendedLots = new Set(allAttendees.map(attendee => String(attendee.lot)));
-    
+
     renderAttendeeTable(allAttendees, strataPlanCache);
     updateQuorumDisplay(attendedLots.size, currentTotalLots);
     updateSyncButton();
@@ -121,10 +120,10 @@ export const renderStrataPlans = (plans) => {
     };
 
     strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
-    plans.sort((a, b) => a.sp_number - b.sp_number); 
+    plans.sort((a, b) => a.sp_number - b.sp_number);
     plans.forEach(plan => {
         const option = document.createElement('option');
-        option.value = plan.sp_number; 
+        option.value = plan.sp_number;
         option.textContent = `${plan.sp_number} - ${plan.suburb}`;
         strataPlanSelect.appendChild(option);
     });
@@ -145,7 +144,7 @@ export const renderStrataPlans = (plans) => {
 export const renderAttendeeTable = (attendees, strataPlanCache) => {
     const attendeeTableBody = document.getElementById('attendee-table-body');
     const personCountSpan = document.getElementById('person-count');
-    
+
     const syncedCount = attendees.filter(item => item.status !== 'queued').length;
     personCountSpan.textContent = `(${syncedCount} ${syncedCount === 1 ? 'person' : 'people'})`;
     attendeeTableBody.innerHTML = '';
@@ -163,19 +162,19 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
         const isQueued = item.status === 'queued';
 
         const isProxy = item.is_proxy;
-        const isCompany = !isProxy && item.rep_name;
+        const isCompany = !isProxy && item.rep_name && item.rep_name !== 'N/A';
 
         let ownerRepName = item.owner_name;
         let companyName = isCompany ? item.rep_name : '';
-        let rowColor = '#d4e3c1'; 
+        let rowColor = '#d4e3c1';
 
         if(isQueued) rowColor = '#f5e0df';
         else if(isProxy) rowColor = '#c1e1e3';
         else if(isCompany) rowColor = '#cbc1e3';
-        
+
         const row = document.createElement('tr');
         row.style.backgroundColor = rowColor;
-        
+
         const deleteButton = isQueued
             ? `<button class="delete-btn" data-type="queued" data-submission-id="${item.submissionId}">Delete</button>`
             : `<button class="delete-btn" data-type="synced" data-id="${item.id}" data-lot="${item.lot}">Delete</button>`;
@@ -189,7 +188,6 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
         `;
         attendeeTableBody.appendChild(row);
     });
-
 };
 
 /**
@@ -198,7 +196,7 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
 export const updateQuorumDisplay = (count = 0, total = 0) => {
     const quorumDisplay = document.getElementById('quorum-display');
     const percentage = total > 0 ? Math.floor((count / total) * 100) : 0;
-    
+
     const quorumThreshold = Math.ceil(total * 0.25);
     const isQuorumMet = count >= quorumThreshold;
 
@@ -212,7 +210,7 @@ export const updateQuorumDisplay = (count = 0, total = 0) => {
 export const updateSyncButton = (isSyncing = false) => {
     const syncBtn = document.getElementById('sync-btn');
     if (!syncBtn) return;
-    
+
     const queue = getSubmissionQueue();
     if (queue.length > 0) {
         syncBtn.disabled = isSyncing;

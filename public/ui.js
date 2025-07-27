@@ -176,10 +176,10 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
         const row = document.createElement('tr');
         row.style.backgroundColor = rowColor;
         
-        const deleteButton = isQueued 
+        const deleteButton = isQueued
             ? `<button class="delete-btn" data-type="queued" data-submission-id="${item.submissionId}">Delete</button>`
-            : `<button class="delete-btn" data-type="synced" data-lot="${item.lot}">Delete</button>`;
-        
+            : `<button class="delete-btn" data-type="synced" data-id="${item.id}" data-lot="${item.lot}">Delete</button>`;
+
         row.innerHTML = `
             <td>${item.lot}</td>
             <td>${unitNumber}</td>
@@ -189,6 +189,7 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
         `;
         attendeeTableBody.appendChild(row);
     });
+
 };
 
 /**

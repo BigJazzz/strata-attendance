@@ -49,15 +49,16 @@ function isAdmin(req, res, next) {
 // --- Meeting Endpoints ---
 app.get('/api/meetings/:spNumber', authenticate, async (req, res) => {
     try {
-        const { spNumber } = req.params;
+        const { spNumber } = req.params; // Only get spNumber from params
         const db = getDb();
         const result = await db.execute({
-            // Add m.meeting_date here
+            // The query now only filters by sp_number
             sql: `SELECT m.id, m.meeting_date, m.meeting_type, m.quorum_total
-                FROM meetings m
-                JOIN strata_plans sp ON m.plan_id = sp.id
-                WHERE sp.sp_number = ? AND m.meeting_date = ?
-                ORDER BY m.meeting_date DESC`,
+                  FROM meetings m
+                  JOIN strata_plans sp ON m.plan_id = sp.id
+                  WHERE sp.sp_number = ?
+                  ORDER BY m.meeting_date DESC`,
+            // Provide the single corresponding argument
             args: [spNumber],
         });
         res.json({ success: true, meetings: rowsToObjects(result) });
@@ -67,25 +68,23 @@ app.get('/api/meetings/:spNumber', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
+app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
     try {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
-            sql: `SELECT m.id, m.meeting_type, m.quorum_total
-                  FROM meetings m
+            // Add a.id to the SELECT statement
+            sql: `SELECT a.id, a.lot, a.owner_name, a.rep_name, a.is_financial, a.is_proxy
+                  FROM attendance a
+                  JOIN meetings m ON a.meeting_id = m.id
                   JOIN strata_plans sp ON m.plan_id = sp.id
                   WHERE sp.sp_number = ? AND m.meeting_date = ?`,
-            args: [spNumber, date],
+            args: [spNumber, date]
         });
-        if (result.rows.length > 0) {
-            res.json({ success: true, meeting: rowsToObjects(result)[0] });
-        } else {
-            res.json({ success: false, message: 'No meeting found for this date.' });
-        }
+        res.json({ success: true, attendees: rowsToObjects(result) });
     } catch (err) {
-        console.error('[GET MEETING ERROR]', err);
-        res.status(500).json({ error: 'Failed to check for meeting.' });
+        console.error('[GET ATTENDANCE ERROR]', err);
+        res.status(500).json({ error: 'Failed to fetch attendance records.' });
     }
 });
 
@@ -167,22 +166,13 @@ app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/attendance/:spNumber/:date/:lot', authenticate, async (req, res) => {
+app.delete('/api/attendance/:id', authenticate, async (req, res) => {
     try {
-        const { spNumber, date, lot } = req.params;
+        const { id } = req.params;
         const db = getDb();
-        const planResult = await db.execute({
-            sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
-            args: [spNumber],
-        });
-        if (planResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Strata plan not found.' });
-        }
-        const plan_id = planResult.rows[0][0];
-
         await db.execute({
-            sql: 'DELETE FROM attendance WHERE plan_id = ? AND lot = ? AND date(timestamp) = ?',
-            args: [plan_id, lot, date]
+            sql: 'DELETE FROM attendance WHERE id = ?',
+            args: [id]
         });
         res.status(204).send();
     } catch (err) {

@@ -3,6 +3,10 @@ name: Merge Files to Markdown
 on:
   workflow_dispatch:
 
+# Add this permissions block
+permissions:
+  contents: write
+
 jobs:
   merge:
     runs-on: ubuntu-latest
@@ -20,14 +24,11 @@ jobs:
           npm install
           node merge-files.cjs
 
+      # Simplified commit step
       - name: Commit merged file
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          git config --global user.name 'Jarryd'
-          git config --global user.email 'j@rryd.au'
-          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add copilot.md
           git commit -m "Auto-merged files into markdown"
           git push
-

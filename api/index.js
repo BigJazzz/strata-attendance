@@ -52,11 +52,12 @@ app.get('/api/meetings/:spNumber', authenticate, async (req, res) => {
         const { spNumber } = req.params;
         const db = getDb();
         const result = await db.execute({
+            // Add m.meeting_date here
             sql: `SELECT m.id, m.meeting_date, m.meeting_type, m.quorum_total
-                  FROM meetings m
-                  JOIN strata_plans sp ON m.plan_id = sp.id
-                  WHERE sp.sp_number = ?
-                  ORDER BY m.meeting_date DESC`,
+                FROM meetings m
+                JOIN strata_plans sp ON m.plan_id = sp.id
+                WHERE sp.sp_number = ? AND m.meeting_date = ?
+                ORDER BY m.meeting_date DESC`,
             args: [spNumber],
         });
         res.json({ success: true, meetings: rowsToObjects(result) });

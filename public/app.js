@@ -280,12 +280,13 @@ async function handlePlanChange(event) {
 
         if (meetingCheck.success && meetingCheck.meeting) {
             showToast(`Auto-loading today's meeting: ${meetingCheck.meeting.meeting_type}`, 'info');
-            await loadMeeting(spNumber, {
+            const meetingData = {
                 id: meetingCheck.meeting.id,
-                meetingDate: today,
+                meetingDate: meetingCheck.meeting.meeting_date,
                 meetingType: meetingCheck.meeting.meeting_type,
                 quorumTotal: meetingCheck.meeting.quorum_total
-            });
+            };
+            await loadMeeting(spNumber, meetingData);
         } else {
             const allMeetingsResult = await apiGet(`/meetings/${spNumber}`);
             const existingMeetings = allMeetingsResult.success ? allMeetingsResult.meetings : [];
@@ -312,7 +313,12 @@ async function handlePlanChange(event) {
                     quorumTotal: newMeetingResponse.meeting.quorum_total,
                 };
             } else {
-                meetingDataToLoad = chosenMeetingResult;
+                meetingDataToLoad = {
+                    id: chosenMeetingResult.id,
+                    meetingDate: chosenMeetingResult.meeting_date,
+                    meetingType: chosenMeetingResult.meeting_type,
+                    quorumTotal: chosenMeetingResult.quorum_total
+                };
             }
 
             await loadMeeting(spNumber, meetingDataToLoad);

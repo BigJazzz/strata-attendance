@@ -152,7 +152,6 @@ app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
-            // Corrected SQL query
             sql: `SELECT a.lot, a.owner_name, a.rep_name, a.is_financial, a.is_proxy
                   FROM attendance a
                   JOIN meetings m ON a.meeting_id = m.id
@@ -214,10 +213,18 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
 
             const rep_name = sub.rep_name || null;
 
+            // This is the crucial change.
+            // We now delete an entry only if the meeting, lot, owner, and rep all match.
+            // This correctly handles multiple owners per lot and multiple reps per company.
             await tx.execute({
-                sql: `DELETE FROM attendance WHERE meeting_id = ? AND lot = ?`,
-                args: [meetingId, sub.lot]
+                sql: `DELETE FROM attendance
+                      WHERE meeting_id = ?
+                        AND lot = ?
+                        AND owner_name = ?
+                        AND rep_name = ?`,
+                args: [meetingId, sub.lot, sub.owner_name, rep_name]
             });
+
 
             await tx.execute({
                 sql: `INSERT INTO attendance (plan_id, lot, owner_name, rep_name, is_financial, is_proxy, meeting_id)

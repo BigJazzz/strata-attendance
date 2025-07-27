@@ -145,40 +145,47 @@ function handleFormSubmit(event) {
  */
 async function syncSubmissions() {
     if (isSyncing || !navigator.onLine) return;
-    const queue = getSubmissionQueue();
-    if (queue.length === 0) {
+
+    // Isolate the batch to be synced.
+    const batchToSync = getSubmissionQueue();
+    if (batchToSync.length === 0) {
         updateSyncButton();
         return;
     }
-    if (!currentMeetingId) {
-        showToast('Cannot sync without an active meeting.', 'error');
-        return;
-    }
+
+    // Immediately clear the main queue. New items can now be added safely.
+    saveSubmissionQueue([]);
 
     isSyncing = true;
     updateSyncButton(true);
-    showToast(`Syncing ${queue.length} item(s)...`, 'info');
+    showToast(`Syncing ${batchToSync.length} item(s)...`, 'info');
 
     document.querySelectorAll('.delete-btn[data-type="queued"]').forEach(btn => btn.disabled = true);
 
     try {
         const postResult = await apiPost('/attendance/batch', {
             meetingId: currentMeetingId,
-            submissions: queue
+            submissions: batchToSync
         });
 
-        if (postResult && postResult.success) {
-            saveSubmissionQueue([]);
-            showToast(`Successfully synced ${queue.length} item(s).`, 'success');
-        } else {
+        if (!postResult || !postResult.success) {
             throw new Error(postResult.error || 'Batch submission failed.');
         }
 
+        // On success, the items are already gone from the queue. We're done.
+        showToast(`Successfully synced ${batchToSync.length} item(s).`, 'success');
+
     } catch (error) {
         console.error('[SYNC FAILED]', error);
-        showToast(`Sync failed: ${error.message}. Items remain queued.`, 'error');
+        showToast(`Sync failed: ${error.message}. Items have been re-queued.`, 'error');
+
+        // On failure, add the failed batch back to the start of the queue.
+        const currentQueue = getSubmissionQueue();
+        saveSubmissionQueue([...batchToSync, ...currentQueue]);
+
     } finally {
         isSyncing = false;
+        // Always refresh the display with the latest data from the server.
         if (currentStrataPlan && currentMeetingDate) {
             const data = await apiGet(`/attendance/${currentStrataPlan}/${currentMeetingDate}`);
             if (data.success) {

@@ -152,10 +152,12 @@ app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
+            // Corrected SQL query
             sql: `SELECT a.lot, a.owner_name, a.rep_name, a.is_financial, a.is_proxy
                   FROM attendance a
-                  JOIN strata_plans sp ON a.plan_id = sp.id
-                  WHERE sp.sp_number = ? AND date(a.timestamp) = ?`,
+                  JOIN meetings m ON a.meeting_id = m.id
+                  JOIN strata_plans sp ON m.plan_id = sp.id
+                  WHERE sp.sp_number = ? AND m.meeting_date = ?`,
             args: [spNumber, date]
         });
         res.json({ success: true, attendees: rowsToObjects(result) });

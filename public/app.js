@@ -189,16 +189,13 @@ async function handleDelete(event) {
         updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
         showToast('Queued item removed.', 'info');
     } else if (type === 'synced') {
-        const attendanceId = button.dataset.id; // Use the new data-id
-        const lotValue = button.dataset.lot; // Keep lot for the confirmation message
-
+        const attendanceId = button.dataset.id;
+        const lotValue = button.dataset.lot;
         const confirm = await showModal(`Are you sure you want to delete the record for Lot ${lotValue}? This cannot be undone.`, { confirmText: 'Yes, Delete' });
         if (!confirm.confirmed) return;
 
         try {
-            // Call the new, corrected API endpoint
             await apiDelete(`/attendance/${attendanceId}`);
-            // Filter the local array by the unique ID
             currentSyncedAttendees = currentSyncedAttendees.filter(a => a.id != attendanceId);
             updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
             showToast(`Record for Lot ${lotValue} deleted.`, 'success');

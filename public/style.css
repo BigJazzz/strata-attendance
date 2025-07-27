@@ -212,7 +212,7 @@ button:disabled {
     min-height: 1.2em; 
 }
 
-.attendee-section, .user-management-section { 
+.attendee-section { 
     margin-top: 2rem; 
     border-top: 1px solid #eee; 
     padding-top: 1.5rem; 

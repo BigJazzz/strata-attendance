@@ -49,16 +49,14 @@ function isAdmin(req, res, next) {
 // --- Meeting Endpoints ---
 app.get('/api/meetings/:spNumber', authenticate, async (req, res) => {
     try {
-        const { spNumber } = req.params; // Only get spNumber from params
+        const { spNumber } = req.params;
         const db = getDb();
         const result = await db.execute({
-            // The query now only filters by sp_number
             sql: `SELECT m.id, m.meeting_date, m.meeting_type, m.quorum_total
                   FROM meetings m
                   JOIN strata_plans sp ON m.plan_id = sp.id
                   WHERE sp.sp_number = ?
                   ORDER BY m.meeting_date DESC`,
-            // Provide the single corresponding argument
             args: [spNumber],
         });
         res.json({ success: true, meetings: rowsToObjects(result) });
@@ -68,23 +66,26 @@ app.get('/api/meetings/:spNumber', authenticate, async (req, res) => {
     }
 });
 
-app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
+// THIS ENDPOINT WAS MISSING - IT IS NOW CORRECTLY ADDED BACK
+app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
     try {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
-            // Add a.id to the SELECT statement
-            sql: `SELECT a.id, a.lot, a.owner_name, a.rep_name, a.is_financial, a.is_proxy
-                  FROM attendance a
-                  JOIN meetings m ON a.meeting_id = m.id
+            sql: `SELECT m.id, m.meeting_date, m.meeting_type, m.quorum_total 
+                  FROM meetings m
                   JOIN strata_plans sp ON m.plan_id = sp.id
                   WHERE sp.sp_number = ? AND m.meeting_date = ?`,
-            args: [spNumber, date]
+            args: [spNumber, date],
         });
-        res.json({ success: true, attendees: rowsToObjects(result) });
+        if (result.rows.length > 0) {
+            res.json({ success: true, meeting: rowsToObjects(result)[0] });
+        } else {
+            res.json({ success: false, message: 'No meeting found for this date.' });
+        }
     } catch (err) {
-        console.error('[GET ATTENDANCE ERROR]', err);
-        res.status(500).json({ error: 'Failed to fetch attendance records.' });
+        console.error('[GET MEETING ERROR]', err);
+        res.status(500).json({ error: 'Failed to check for meeting.' });
     }
 });
 
@@ -152,7 +153,7 @@ app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
-            sql: `SELECT a.lot, a.owner_name, a.rep_name, a.is_financial, a.is_proxy
+            sql: `SELECT a.id, a.lot, a.owner_name, a.rep_name, a.is_financial, a.is_proxy
                   FROM attendance a
                   JOIN meetings m ON a.meeting_id = m.id
                   JOIN strata_plans sp ON m.plan_id = sp.id
@@ -190,32 +191,19 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
 
     const db = getDb();
     const tx = await db.transaction('write');
-    let insertedCount = 0;
-    const skippedSpList = [];
-
     try {
-        const spNumbers = [...new Set(submissions.map(s => String(s.sp)))]; // Ensure uniform key format
+        const spNumbers = [...new Set(submissions.map(s => s.sp))];
         const planIdsResult = await tx.execute({
             sql: `SELECT id, sp_number FROM strata_plans WHERE sp_number IN (${'?,'.repeat(spNumbers.length).slice(0, -1)})`,
             args: spNumbers
         });
-
-        const planIdMap = new Map(
-            planIdsResult.rows.map(row => [String(row[1]), row[0]]) // Normalize keys
-        );
+        const planIdMap = new Map(planIdsResult.rows.map(row => [row[1], row[0]]));
 
         for (const sub of submissions) {
-            const plan_id = planIdMap.get(String(sub.sp));
-            if (!plan_id) {
-                console.warn(`[SKIPPED] SP number not mapped: "${sub.sp}"`);
-                skippedSpList.push(sub.sp);
-                continue;
-            }
+            const plan_id = planIdMap.get(sub.sp);
+            if (!plan_id) continue;
 
             const rep_name = sub.rep_name || null;
-
-            // Log incoming submission for transparency
-            console.log(`[PROCESSING] Meeting: ${meetingId}, SP: ${sub.sp}, Lot: ${sub.lot}, Owner: ${sub.owner_name}, Rep: ${rep_name}`);
 
             await tx.execute({
                 sql: `DELETE FROM attendance
@@ -228,20 +216,10 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
                       VALUES (?, ?, ?, ?, ?, ?, ?)`,
                 args: [plan_id, sub.lot, sub.owner_name, rep_name, sub.is_financial ? 1 : 0, sub.is_proxy ? 1 : 0, meetingId]
             });
-
-            insertedCount++;
         }
 
         await tx.commit();
-        console.log(`[BATCH COMPLETE] Inserted: ${insertedCount}, Skipped: ${skippedSpList.length}`);
-
-        res.status(201).json({
-            success: true,
-            message: 'Batch processed successfully.',
-            insertedCount,
-            skippedSpList
-        });
-
+        res.status(201).json({ success: true, message: 'Batch processed successfully.' });
     } catch (err) {
         if (tx) await tx.rollback();
         console.error('[BATCH SUBMIT ERROR]', {

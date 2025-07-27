@@ -82,8 +82,9 @@ function handleFormSubmit(event) {
 
     const owner_name = companyName || selectedNames.join(', ');
 
-    if (!isProxy && !owner_name) {
-        showToast('An owner must be selected or the lot must belong to a company.', 'error');
+    // Stricter validation to ensure owner_name is always present.
+    if (!owner_name) {
+        showToast('An owner must be selected before assigning a proxy.', 'error');
         return;
     }
      if (isProxy && !proxyHolderLot) {
@@ -93,7 +94,7 @@ function handleFormSubmit(event) {
 
     let rep_name;
     if (isProxy) {
-        rep_name = `Proxy by Lot ${proxyHolderLot}`;
+        rep_name = `Proxy - Lot ${proxyHolderLot}`;
     } else if (companyName) {
         rep_name = companyRep;
     } else {
@@ -121,6 +122,11 @@ function handleFormSubmit(event) {
     document.getElementById('company-rep-group').style.display = 'none';
     document.getElementById('proxy-holder-group').style.display = 'none';
     document.getElementById('checkbox-container').innerHTML = '<p>Enter a Lot Number.</p>';
+    
+    // FIX: Manually reset the UI for the owner's box to ensure it's visible for the next entry.
+    document.getElementById('checkbox-container').style.display = 'block';
+    document.getElementById('owner-label').style.display = 'block';
+
     lotNumberInput.focus();
 }
 
@@ -351,6 +357,8 @@ async function initializeApp() {
     document.getElementById('attendance-form').addEventListener('submit', handleFormSubmit);
     document.getElementById('attendee-table-body').addEventListener('click', handleDelete);
     document.getElementById('sync-btn').addEventListener('click', syncSubmissions);
+    
+    // Hide owner selection UI when proxy is checked.
     document.getElementById('is-proxy').addEventListener('change', (e) => {
         const isChecked = e.target.checked;
         document.getElementById('proxy-holder-group').style.display = isChecked ? 'block' : 'none';

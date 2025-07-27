@@ -45,6 +45,7 @@ const adminPanel = document.getElementById('admin-panel');
 const strataPlanSelect = document.getElementById('strata-plan-select');
 const lotNumberInput = document.getElementById('lot-number');
 const checkInTabBtn = document.getElementById('check-in-tab-btn');
+const meetingDateBtn = document.getElementById('meeting-date-btn');
 
 // --- App State ---
 let currentStrataPlan = null;
@@ -212,6 +213,10 @@ async function handleDelete(event) {
 async function loadMeeting(spNumber, meetingData) {
     try {
         const { id, meetingDate, meetingType, quorumTotal } = meetingData;
+        
+        // Save the active meeting to sessionStorage
+        sessionStorage.setItem('activeMeeting', JSON.stringify({ spNumber, ...meetingData }));
+
         currentStrataPlan = spNumber;
         currentMeetingId = id;
         currentMeetingDate = meetingDate;
@@ -221,7 +226,8 @@ async function loadMeeting(spNumber, meetingData) {
             day: 'numeric', month: 'long', year: 'numeric'
         });
         document.getElementById('meeting-title').textContent = `${meetingType} - SP ${spNumber}`;
-        document.getElementById('meeting-date').textContent = formattedDate;
+        meetingDateBtn.textContent = formattedDate;
+        meetingDateBtn.style.display = 'inline-block';
 
         const cachedData = localStorage.getItem(`strata_${spNumber}`);
         if (cachedData) {
@@ -259,10 +265,56 @@ async function loadMeeting(spNumber, meetingData) {
     }
 }
 
+/**
+ * Prompts the user to select or create a meeting.
+ */
+async function promptForMeeting(spNumber) {
+    try {
+        const allMeetingsResult = await apiGet(`/meetings/${spNumber}`);
+        const existingMeetings = allMeetingsResult.success ? allMeetingsResult.meetings : [];
+
+        const chosenMeetingResult = await showMeetingModal(existingMeetings);
+
+        if (!chosenMeetingResult) {
+            strataPlanSelect.value = '';
+            currentStrataPlan = null;
+            return;
+        }
+
+        let meetingDataToLoad;
+
+        if (chosenMeetingResult.isNew) {
+            const newMeetingResponse = await apiPost('/meetings', { spNumber, ...chosenMeetingResult });
+            if (!newMeetingResponse.success) {
+                throw new Error(newMeetingResponse.error || 'Failed to create new meeting.');
+            }
+            meetingDataToLoad = {
+                id: newMeetingResponse.meeting.id,
+                meetingDate: chosenMeetingResult.meetingDate,
+                meetingType: newMeetingResponse.meeting.meeting_type,
+                quorumTotal: newMeetingResponse.meeting.quorum_total,
+            };
+        } else {
+            meetingDataToLoad = {
+                id: chosenMeetingResult.id,
+                meetingDate: chosenMeetingResult.meeting_date,
+                meetingType: chosenMeetingResult.meeting_type,
+                quorumTotal: chosenMeetingResult.quorum_total
+            };
+        }
+
+        await loadMeeting(spNumber, meetingDataToLoad);
+    } catch (err) {
+        console.error(`Failed during meeting setup for SP ${spNumber}:`, err);
+        showToast(`Error setting up meeting: ${err.message}`, 'error');
+        resetUiOnPlanChange();
+    }
+}
 
 async function handlePlanChange(event) {
     const spNumber = event.target.value;
     resetUiOnPlanChange();
+    sessionStorage.removeItem('activeMeeting'); // Clear meeting cache on plan change
 
     if (autoSyncIntervalId) clearInterval(autoSyncIntervalId);
 
@@ -274,73 +326,24 @@ async function handlePlanChange(event) {
     }
 
     document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
-
-    const today = new Date().toISOString().split('T')[0];
-    try {
-        const meetingCheck = await apiGet(`/meetings/${spNumber}/${today}`);
-
-        if (meetingCheck.success && meetingCheck.meeting) {
-            showToast(`Auto-loading today's meeting: ${meetingCheck.meeting.meeting_type}`, 'info');
-            const meetingData = {
-                id: meetingCheck.meeting.id,
-                meetingDate: meetingCheck.meeting.meeting_date,
-                meetingType: meetingCheck.meeting.meeting_type,
-                quorumTotal: meetingCheck.meeting.quorum_total
-            };
-            await loadMeeting(spNumber, meetingData);
-        } else {
-            const allMeetingsResult = await apiGet(`/meetings/${spNumber}`);
-            const existingMeetings = allMeetingsResult.success ? allMeetingsResult.meetings : [];
-
-            const chosenMeetingResult = await showMeetingModal(existingMeetings);
-
-            if (!chosenMeetingResult) {
-                document.getElementById('strata-plan-select').value = '';
-                currentStrataPlan = null;
-                return;
-            }
-
-            let meetingDataToLoad;
-
-            if (chosenMeetingResult.isNew) {
-                const newMeetingResponse = await apiPost('/meetings', { spNumber, ...chosenMeetingResult });
-                if (!newMeetingResponse.success) {
-                    throw new Error(newMeetingResponse.error || 'Failed to create new meeting.');
-                }
-                meetingDataToLoad = {
-                    id: newMeetingResponse.meeting.id,
-                    meetingDate: chosenMeetingResult.meetingDate,
-                    meetingType: newMeetingResponse.meeting.meeting_type,
-                    quorumTotal: newMeetingResponse.meeting.quorum_total,
-                };
-            } else {
-                meetingDataToLoad = {
-                    id: chosenMeetingResult.id,
-                    meetingDate: chosenMeetingResult.meeting_date,
-                    meetingType: chosenMeetingResult.meeting_type,
-                    quorumTotal: chosenMeetingResult.quorum_total
-                };
-            }
-
-            await loadMeeting(spNumber, meetingDataToLoad);
-        }
-    } catch (err) {
-        console.error(`Failed during meeting setup for SP ${spNumber}:`, err);
-        showToast(`Error setting up meeting: ${err.message}`, 'error');
-        resetUiOnPlanChange();
-    }
+    await promptForMeeting(spNumber);
 }
 
 async function initializeApp() {
     if (isAppInitialized) return;
     isAppInitialized = true;
 
-    document.getElementById('login-section').classList.add('hidden');
-    document.getElementById('main-app').classList.remove('hidden');
+    loginSection.classList.add('hidden');
+    mainApp.classList.remove('hidden');
 
-    document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
-    document.getElementById('strata-plan-select').addEventListener('change', handlePlanChange);
-    document.getElementById('lot-number').addEventListener('input', debounce((e) => {
+    checkInTabBtn.addEventListener('click', (e) => openTab(e, 'check-in-tab'));
+    strataPlanSelect.addEventListener('change', handlePlanChange);
+    meetingDateBtn.addEventListener('click', () => {
+        if (currentStrataPlan) {
+            promptForMeeting(currentStrataPlan);
+        }
+    });
+    lotNumberInput.addEventListener('input', debounce((e) => {
         if (e.target.value.trim() && strataPlanCache) {
             renderOwnerCheckboxes(e.target.value.trim(), strataPlanCache);
         }
@@ -357,20 +360,10 @@ async function initializeApp() {
 
     const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
     if (user) {
-        document.getElementById('user-display').textContent = user.username;
+        userDisplay.textContent = user.username;
         if (user.role === 'Admin') {
-            document.getElementById('admin-panel').classList.remove('hidden');
+            adminPanel.classList.remove('hidden');
             setupAdminEventListeners();
-        }
-    }
-
-    const cachedPlans = localStorage.getItem('strataPlans');
-    if (cachedPlans) {
-        try {
-            renderStrataPlans(JSON.parse(cachedPlans));
-        } catch (e) {
-            console.error("Failed to parse cached strata plans", e);
-            localStorage.removeItem('strataPlans');
         }
     }
 
@@ -380,20 +373,35 @@ async function initializeApp() {
             localStorage.setItem('strataPlans', JSON.stringify(data.plans));
             renderStrataPlans(data.plans);
 
+            // Restore SP selection from cookie
+            const savedSP = document.cookie.split('; ').find(row => row.startsWith('selectedSP='))?.split('=')[1];
+            if (savedSP && strataPlanSelect.querySelector(`option[value="${savedSP}"]`)) {
+                strataPlanSelect.value = savedSP;
+            }
+
+            // Check for a cached meeting
+            const cachedMeeting = JSON.parse(sessionStorage.getItem('activeMeeting'));
+            if (cachedMeeting && cachedMeeting.spNumber === strataPlanSelect.value) {
+                showToast('Resuming previous meeting session.', 'info');
+                await loadMeeting(cachedMeeting.spNumber, cachedMeeting);
+            } else if (strataPlanSelect.value) {
+                // If SP is selected but no meeting is cached, prompt for one
+                await promptForMeeting(strataPlanSelect.value);
+            }
+
             if (user && user.role !== 'Admin' && data.plans.length === 1) {
-                const strataPlanSelect = document.getElementById('strata-plan-select');
                 strataPlanSelect.value = data.plans[0].sp_number;
                 strataPlanSelect.disabled = true;
-                strataPlanSelect.dispatchEvent(new Event('change'));
+                if (!cachedMeeting) { // Trigger change only if no meeting is cached
+                    strataPlanSelect.dispatchEvent(new Event('change'));
+                }
             }
         } else {
             throw new Error(data.error || 'Failed to load strata plans.');
         }
     } catch (err) {
         console.error('Failed to initialize strata plans:', err);
-        if (!cachedPlans) {
-             showToast('Error: Could not load strata plans.', 'error');
-        }
+        showToast('Error: Could not load strata plans.', 'error');
     }
 
     syncSubmissions();
@@ -407,11 +415,11 @@ function setupAdminEventListeners() {
             loadUsers();
         });
     }
-    document.getElementById('logout-btn').addEventListener('click', handleLogout);
-    document.getElementById('change-password-btn').addEventListener('click', handleChangePassword);
-    document.getElementById('add-user-btn').addEventListener('click', handleAddUser);
-    document.getElementById('clear-cache-btn').addEventListener('click', handleClearCache);
-    document.getElementById('user-list-body').addEventListener('change', handleUserActions);
+    logoutBtn.addEventListener('click', handleLogout);
+    changePasswordBtn.addEventListener('click', handleChangePassword);
+    addUserBtn.addEventListener('click', handleAddUser);
+    clearCacheBtn.addEventListener('click', handleClearCache);
+    userListBody.addEventListener('change', handleUserActions);
 
     const collapsibleToggle = document.querySelector('.collapsible-toggle');
     if (collapsibleToggle) {
@@ -455,6 +463,7 @@ function handleClearCache() {
         .then(res => {
             if (res.confirmed) {
                 clearStrataCache();
+                sessionStorage.removeItem('activeMeeting');
                 saveSubmissionQueue([]);
                 document.cookie = 'selectedSP=; max-age=0; path=/;';
                 location.reload();
@@ -463,18 +472,13 @@ function handleClearCache() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const loginForm = document.getElementById('login-form');
-  if (loginForm) {
-      loginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const loginResult = await handleLogin(e);
-        if (loginResult && loginResult.success) {
-            initializeApp();
-        }
-      });
-  } else {
-      console.error("Fatal Error: The login form with id 'login-form' was not found in the DOM. Check public/index.html.");
-  }
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const loginResult = await handleLogin(e);
+    if (loginResult && loginResult.success) {
+        initializeApp();
+    }
+  });
 
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {

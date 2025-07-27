@@ -104,7 +104,12 @@ export const resetUiOnPlanChange = () => {
     document.getElementById('lot-number').disabled = true;
     document.getElementById('financial-label').lastChild.nodeValue = " Is Financial?";
     document.getElementById('meeting-title').textContent = 'Attendance Form';
-    document.getElementById('meeting-date').textContent = '';
+    
+    // Hide the meeting date button on reset
+    const meetingDateBtn = document.getElementById('meeting-date-btn');
+    meetingDateBtn.textContent = '';
+    meetingDateBtn.style.display = 'none';
+
     document.getElementById('company-rep-group').style.display = 'none';
 };
 
@@ -129,13 +134,6 @@ export const renderStrataPlans = (plans) => {
     });
 
     strataPlanSelect.disabled = false;
-
-    const savedSP = document.cookie.split('; ').find(row => row.startsWith('selectedSP='))?.split('=')[1];
-
-    if (savedSP && strataPlanSelect.querySelector(`option[value="${savedSP}"]`)) {
-        strataPlanSelect.value = savedSP;
-        strataPlanSelect.dispatchEvent(new Event('change'));
-    }
 };
 
 /**

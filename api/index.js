@@ -199,42 +199,58 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
 
     const db = getDb();
     const tx = await db.transaction('write');
+    let insertedCount = 0;
+    const skippedSpList = [];
+
     try {
-        const spNumbers = [...new Set(submissions.map(s => s.sp))];
+        const spNumbers = [...new Set(submissions.map(s => String(s.sp)))]; // Ensure uniform key format
         const planIdsResult = await tx.execute({
             sql: `SELECT id, sp_number FROM strata_plans WHERE sp_number IN (${'?,'.repeat(spNumbers.length).slice(0, -1)})`,
             args: spNumbers
         });
-        const planIdMap = new Map(planIdsResult.rows.map(row => [row[1], row[0]]));
+
+        const planIdMap = new Map(
+            planIdsResult.rows.map(row => [String(row[1]), row[0]]) // Normalize keys
+        );
 
         for (const sub of submissions) {
-            const plan_id = planIdMap.get(sub.sp);
-            if (!plan_id) continue;
+            const plan_id = planIdMap.get(String(sub.sp));
+            if (!plan_id) {
+                console.warn(`[SKIPPED] SP number not mapped: "${sub.sp}"`);
+                skippedSpList.push(sub.sp);
+                continue;
+            }
 
             const rep_name = sub.rep_name || null;
 
-            // This is the crucial change.
-            // We now delete an entry only if the meeting, lot, owner, and rep all match.
-            // This correctly handles multiple owners per lot and multiple reps per company.
+            // Log incoming submission for transparency
+            console.log(`[PROCESSING] Meeting: ${meetingId}, SP: ${sub.sp}, Lot: ${sub.lot}, Owner: ${sub.owner_name}, Rep: ${rep_name}`);
+
             await tx.execute({
                 sql: `DELETE FROM attendance
-                      WHERE meeting_id = ?
-                        AND lot = ?
-                        AND owner_name = ?
-                        AND rep_name = ?`,
+                      WHERE meeting_id = ? AND lot = ? AND owner_name = ? AND rep_name = ?`,
                 args: [meetingId, sub.lot, sub.owner_name, rep_name]
             });
-
 
             await tx.execute({
                 sql: `INSERT INTO attendance (plan_id, lot, owner_name, rep_name, is_financial, is_proxy, meeting_id)
                       VALUES (?, ?, ?, ?, ?, ?, ?)`,
                 args: [plan_id, sub.lot, sub.owner_name, rep_name, sub.is_financial ? 1 : 0, sub.is_proxy ? 1 : 0, meetingId]
             });
+
+            insertedCount++;
         }
 
         await tx.commit();
-        res.status(201).json({ success: true, message: 'Batch processed successfully.' });
+        console.log(`[BATCH COMPLETE] Inserted: ${insertedCount}, Skipped: ${skippedSpList.length}`);
+
+        res.status(201).json({
+            success: true,
+            message: 'Batch processed successfully.',
+            insertedCount,
+            skippedSpList
+        });
+
     } catch (err) {
         if (tx) await tx.rollback();
         console.error('[BATCH SUBMIT ERROR]', {
@@ -244,6 +260,7 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
         res.status(500).json({ error: `An error occurred during batch submission: ${err.message}` });
     }
 });
+
 
 app.post('/api/attendance/verify', authenticate, async (req, res) => {
     const { records } = req.body;

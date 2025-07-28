@@ -26,7 +26,8 @@ const exclude = [
   'password.js',
   'favicon.ico',
   '.gitignore',
-  'merge-files.cjs'
+  'merge-files.cjs',
+  'copilot.md'
 ];
 
 function shouldExclude(filePath) {

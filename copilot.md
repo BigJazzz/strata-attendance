@@ -5,9 +5,69 @@ import { createClient } from '@libsql/client';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import Papa from 'papaparse';
+import nodemailer from 'nodemailer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+
+// --- Email and PDF Endpoint ---
+app.post('/api/report/email', authenticate, async (req, res) => {
+    const { recipientEmail, reportHtml, meetingTitle } = req.body;
+
+    if (!recipientEmail || !reportHtml || !meetingTitle) {
+        return res.status(400).json({ error: 'Missing required report data.' });
+    }
+
+    try {
+        // 1. Generate PDF from HTML
+        const browser = await puppeteer.launch({
+            // FIX: Add the '--no-sandbox' flag to the arguments.
+            args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox'],
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: "new",
+        });
+        const page = await browser.newPage();
+        await page.setContent(reportHtml, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+        await browser.close();
+    
+        // 2. Send Email with PDF Attachment
+        const transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST,
+            port: process.env.SMTP_PORT,
+            secure: process.env.SMTP_PORT == 465,
+            auth: {
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS,
+            },
+        });
+
+        await transporter.sendMail({
+            from: `"Strata Attendance App" <${process.env.SMTP_USER}>`,
+            to: recipientEmail,
+            subject: `Attendance Report: ${meetingTitle}`,
+            text: `Please find the attendance report for "${meetingTitle}" attached.`,
+            attachments: [
+                {
+                    filename: 'Attendance-Report.pdf',
+                    content: pdfBuffer,
+                    contentType: 'application/pdf',
+                },
+            ],
+        });
+
+        res.json({ success: true, message: `Report sent to ${recipientEmail}` });
+
+    } catch (err) {
+        console.error('[EMAIL REPORT ERROR]', err);
+        res.status(500).json({ error: `Failed to send report: ${err.message}` });
+    }
+});
+
 
 // --- Turso Client Caching & DB Helpers ---
 let cachedDb = null;
@@ -73,7 +133,7 @@ app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
-            sql: `SELECT m.id, m.meeting_type, m.quorum_total
+            sql: `SELECT m.id, m.meeting_date, m.meeting_type, m.quorum_total 
                   FROM meetings m
                   JOIN strata_plans sp ON m.plan_id = sp.id
                   WHERE sp.sp_number = ? AND m.meeting_date = ?`,
@@ -154,7 +214,7 @@ app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
         const { spNumber, date } = req.params;
         const db = getDb();
         const result = await db.execute({
-            sql: `SELECT a.lot, a.owner_name, a.rep_name, a.is_financial, a.is_proxy
+            sql: `SELECT a.id, a.lot, a.owner_name, a.rep_name, a.is_financial, a.is_proxy
                   FROM attendance a
                   JOIN meetings m ON a.meeting_id = m.id
                   JOIN strata_plans sp ON m.plan_id = sp.id
@@ -168,22 +228,13 @@ app.get('/api/attendance/:spNumber/:date', authenticate, async (req, res) => {
     }
 });
 
-app.delete('/api/attendance/:spNumber/:date/:lot', authenticate, async (req, res) => {
+app.delete('/api/attendance/:id', authenticate, async (req, res) => {
     try {
-        const { spNumber, date, lot } = req.params;
+        const { id } = req.params;
         const db = getDb();
-        const planResult = await db.execute({
-            sql: 'SELECT id FROM strata_plans WHERE sp_number = ?',
-            args: [spNumber],
-        });
-        if (planResult.rows.length === 0) {
-            return res.status(404).json({ error: 'Strata plan not found.' });
-        }
-        const plan_id = planResult.rows[0][0];
-
         await db.execute({
-            sql: 'DELETE FROM attendance WHERE plan_id = ? AND lot = ? AND date(timestamp) = ?',
-            args: [plan_id, lot, date]
+            sql: 'DELETE FROM attendance WHERE id = ?',
+            args: [id]
         });
         res.status(204).send();
     } catch (err) {
@@ -202,31 +253,32 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
     const db = getDb();
     const tx = await db.transaction('write');
     try {
-        const spNumbers = [...new Set(submissions.map(s => s.sp))];
+        const spNumbers = [...new Set(submissions.map(s => String(s.sp)))];
+        
         const planIdsResult = await tx.execute({
             sql: `SELECT id, sp_number FROM strata_plans WHERE sp_number IN (${'?,'.repeat(spNumbers.length).slice(0, -1)})`,
             args: spNumbers
         });
-        const planIdMap = new Map(planIdsResult.rows.map(row => [row[1], row[0]]));
+
+        const planIdMap = new Map(
+            planIdsResult.rows.map(row => [String(row[1]), row[0]])
+        );
 
         for (const sub of submissions) {
-            const plan_id = planIdMap.get(sub.sp);
-            if (!plan_id) continue;
+            const plan_id = planIdMap.get(String(sub.sp));
+            
+            if (!plan_id) {
+                console.warn(`[SKIPPED] SP number not found in map: "${sub.sp}"`);
+                continue;
+            }
 
             const rep_name = sub.rep_name || null;
 
-            // This is the crucial change.
-            // We now delete an entry only if the meeting, lot, owner, and rep all match.
-            // This correctly handles multiple owners per lot and multiple reps per company.
             await tx.execute({
                 sql: `DELETE FROM attendance
-                      WHERE meeting_id = ?
-                        AND lot = ?
-                        AND owner_name = ?
-                        AND rep_name = ?`,
+                      WHERE meeting_id = ? AND lot = ? AND owner_name = ? AND rep_name = ?`,
                 args: [meetingId, sub.lot, sub.owner_name, rep_name]
             });
-
 
             await tx.execute({
                 sql: `INSERT INTO attendance (plan_id, lot, owner_name, rep_name, is_financial, is_proxy, meeting_id)
@@ -237,6 +289,7 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
 
         await tx.commit();
         res.status(201).json({ success: true, message: 'Batch processed successfully.' });
+        
     } catch (err) {
         if (tx) await tx.rollback();
         console.error('[BATCH SUBMIT ERROR]', {
@@ -246,6 +299,7 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
         res.status(500).json({ error: `An error occurred during batch submission: ${err.message}` });
     }
 });
+
 
 app.post('/api/attendance/verify', authenticate, async (req, res) => {
     const { records } = req.body;
@@ -545,6 +599,7 @@ app.use((err, req, res, next) => {
 });
 
 export default app;
+
 ```
 
 ## copilot.md
@@ -587,6 +642,8 @@ import {
     updateSyncButton
 } from './ui.js';
 
+import { EMAIL_REGEX } from './config.js';
+
 // --- DOM Elements ---
 const loginForm = document.getElementById('login-form');
 const logoutBtn = document.getElementById('logout-btn');
@@ -601,17 +658,175 @@ const adminPanel = document.getElementById('admin-panel');
 const strataPlanSelect = document.getElementById('strata-plan-select');
 const lotNumberInput = document.getElementById('lot-number');
 const checkInTabBtn = document.getElementById('check-in-tab-btn');
+const meetingDateBtn = document.getElementById('meeting-date-btn');
+const emailPdfBtn = document.getElementById('email-pdf-btn');
 
 // --- App State ---
 let currentStrataPlan = null;
 let currentMeetingId = null;
 let currentMeetingDate = null;
+let currentMeetingType = null;
 let strataPlanCache = {};
 let currentSyncedAttendees = [];
 let currentTotalLots = 0;
 let isSyncing = false;
 let autoSyncIntervalId = null;
 let isAppInitialized = false;
+
+/**
+ * Generates the HTML content for the PDF report.
+ */
+function generateReportHtml() {
+    const allAttendees = [...currentSyncedAttendees, ...getSubmissionQueue().filter(s => s.sp === currentStrataPlan)];
+    allAttendees.sort((a, b) => a.lot - b.lot);
+
+    let tableRows = '';
+    let uniqueLots = new Set();
+    let peopleCount = 0;
+    let proxyCount = 0;
+    let companyCount = 0;
+
+    allAttendees.forEach((item, index) => {
+        const lotData = strataPlanCache ? strataPlanCache[item.lot] : null;
+        const unitNumber = lotData ? (lotData[2] || 'N/A') : 'N/A';
+        const isProxy = item.is_proxy;
+        const isCompany = !isProxy && item.rep_name && item.rep_name !== 'N/A';
+        
+        let ownerRepName;
+        let companyName = '';
+
+        uniqueLots.add(item.lot);
+
+        if (isProxy) {
+            ownerRepName = item.rep_name;
+            proxyCount++;
+        } else if (isCompany) {
+            ownerRepName = item.owner_name;
+            companyName = item.rep_name;
+            companyCount++;
+            if (item.rep_name) peopleCount++; // Count the rep as a person
+        } else {
+            ownerRepName = item.owner_name;
+            // Count multiple people if "and" or "&" is present
+            peopleCount += (ownerRepName.match(/(&|and)/gi) || []).length + 1;
+        }
+
+        const rowStyle = index % 2 === 0 ? '' : 'background-color: #f0f0f2;';
+
+        tableRows += `
+            <tr style="${rowStyle}">
+                <td style="border: 1px solid #ddd; padding: 10px;">${item.lot}</td>
+                <td style="border: 1px solid #ddd; padding: 10px;">${unitNumber}</td>
+                <td style="border: 1px solid #ddd; padding: 10px;">${ownerRepName}</td>
+                <td style="border: 1px solid #ddd; padding: 10px;">${companyName}</td>
+            </tr>
+        `;
+    });
+
+    const formattedDate = new Date(currentMeetingDate + 'T00:00:00').toLocaleDateString('en-AU', {
+        day: 'numeric', month: 'long', year: 'numeric'
+    });
+
+    return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Attendance Report</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+                th { background-color: #f2f2f2; }
+            </style>
+        </head>
+        <body>
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h1 style="margin: 0; font-size: 24px;">Strata Plan ${currentStrataPlan} - Attendance Report</h1>
+                <p style="margin: 5px 0 0; font-size: 16px; color: #555;">
+                    <strong>Meeting Type:</strong> ${currentMeetingType} | <strong>Date:</strong> ${formattedDate}
+                </p>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Lot</th>
+                        <th>Unit</th>
+                        <th>Owner/Rep</th>
+                        <th>Company</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows}
+                </tbody>
+            </table>
+            <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #ccc; width: 300px; margin-left: auto;">
+                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                    <span style="font-weight: bold;">Unique Lots Represented:</span>
+                    <span>${uniqueLots.size}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                    <span style="font-weight: bold;">People in Attendance:</span>
+                    <span>${peopleCount}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                    <span style="font-weight: bold;">Proxies Received:</span>
+                    <span>${proxyCount}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                    <span style="font-weight: bold;">Companies Represented:</span>
+                    <span>${companyCount}</span>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+}
+
+
+/**
+ * Handles the click event for the "Email PDF Report" button.
+ */
+async function handleEmailReport() {
+    if (!currentStrataPlan || !currentMeetingDate) {
+        showToast('Please select a meeting before generating a report.', 'error');
+        return;
+    }
+
+    const res = await showModal('Enter the recipient\'s email address:', { showInput: true, confirmText: 'Send Email' });
+    if (!res.confirmed || !res.value) return;
+
+    const recipientEmail = res.value.trim();
+    if (!EMAIL_REGEX.test(recipientEmail)) {
+        showToast('Invalid email address provided.', 'error');
+        return;
+    }
+
+    showToast('Generating and sending report...', 'info');
+    emailPdfBtn.disabled = true;
+
+    try {
+        const reportHtml = generateReportHtml();
+        const meetingTitle = `${currentMeetingType} - SP ${currentStrataPlan}`;
+        
+        const result = await apiPost('/report/email', {
+            recipientEmail,
+            reportHtml,
+            meetingTitle
+        });
+
+        if (result.success) {
+            showToast(result.message, 'success');
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (err) {
+        console.error('Failed to email report:', err);
+        showToast(`Error: ${err.message}`, 'error');
+    } finally {
+        emailPdfBtn.disabled = false;
+    }
+}
+
 
 /**
  * Handles the main form submission for checking in an attendee.
@@ -635,10 +850,17 @@ function handleFormSubmit(event) {
     const companyName = companyNameHidden ? companyNameHidden.value : null;
     const selectedNames = Array.from(document.querySelectorAll('input[name="owner"]:checked')).map(cb => cb.value);
 
-    const owner_name = companyName || selectedNames.join(', ');
+    let owner_name = companyName || selectedNames.join(', ');
 
-    if (!isProxy && !owner_name) {
-        showToast('An owner must be selected or the lot must belong to a company.', 'error');
+    if (isProxy) {
+        const ownerData = strataPlanCache[lot];
+        if (ownerData) {
+            owner_name = ownerData[0] || ownerData[1];
+        }
+    }
+
+    if (!owner_name) {
+        showToast(`Could not find owner data for Lot ${lot}. Please check the lot number.`, 'error');
         return;
     }
      if (isProxy && !proxyHolderLot) {
@@ -648,7 +870,7 @@ function handleFormSubmit(event) {
 
     let rep_name;
     if (isProxy) {
-        rep_name = `Proxy by Lot ${proxyHolderLot}`;
+        rep_name = `Proxy - Lot ${proxyHolderLot}`;
     } else if (companyName) {
         rep_name = companyRep;
     } else {
@@ -676,46 +898,58 @@ function handleFormSubmit(event) {
     document.getElementById('company-rep-group').style.display = 'none';
     document.getElementById('proxy-holder-group').style.display = 'none';
     document.getElementById('checkbox-container').innerHTML = '<p>Enter a Lot Number.</p>';
+    
+    document.getElementById('checkbox-container').style.display = 'block';
+    document.getElementById('owner-label').style.display = 'block';
+
     lotNumberInput.focus();
 }
 
 /**
- * Sends the queued submissions to the server and verifies success.
+ * Sends the queued submissions to the server.
  */
 async function syncSubmissions() {
     if (isSyncing || !navigator.onLine) return;
-    const queue = getSubmissionQueue();
-    if (queue.length === 0) {
+
+    const allItems = getSubmissionQueue();
+    if (allItems.length === 0) {
         updateSyncButton();
         return;
     }
-    if (!currentMeetingId) {
-        showToast('Cannot sync without an active meeting.', 'error');
-        return;
-    }
+    
+    // Isolate the batch to be synced.
+    const batchToSync = allItems.filter(item => item.sp === currentStrataPlan);
+    if (batchToSync.length === 0) return;
+
+    // Remove the items for the current plan from the main queue
+    const remainingItems = allItems.filter(item => item.sp !== currentStrataPlan);
+    saveSubmissionQueue(remainingItems);
 
     isSyncing = true;
     updateSyncButton(true);
-    showToast(`Syncing ${queue.length} item(s)...`, 'info');
+    showToast(`Syncing ${batchToSync.length} item(s)...`, 'info');
 
     document.querySelectorAll('.delete-btn[data-type="queued"]').forEach(btn => btn.disabled = true);
 
     try {
         const postResult = await apiPost('/attendance/batch', {
             meetingId: currentMeetingId,
-            submissions: queue
+            submissions: batchToSync
         });
 
-        if (postResult && postResult.success) {
-            saveSubmissionQueue([]);
-            showToast(`Successfully synced ${queue.length} item(s).`, 'success');
-        } else {
+        if (!postResult || !postResult.success) {
             throw new Error(postResult.error || 'Batch submission failed.');
         }
 
+        showToast(`Successfully synced ${batchToSync.length} item(s).`, 'success');
+
     } catch (error) {
         console.error('[SYNC FAILED]', error);
-        showToast(`Sync failed: ${error.message}. Items remain queued.`, 'error');
+        showToast(`Sync failed: ${error.message}. Items have been re-queued.`, 'error');
+
+        const currentQueue = getSubmissionQueue();
+        saveSubmissionQueue([...batchToSync, ...currentQueue]);
+
     } finally {
         isSyncing = false;
         if (currentStrataPlan && currentMeetingDate) {
@@ -745,13 +979,14 @@ async function handleDelete(event) {
         updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
         showToast('Queued item removed.', 'info');
     } else if (type === 'synced') {
+        const attendanceId = button.dataset.id;
         const lotValue = button.dataset.lot;
         const confirm = await showModal(`Are you sure you want to delete the record for Lot ${lotValue}? This cannot be undone.`, { confirmText: 'Yes, Delete' });
         if (!confirm.confirmed) return;
 
         try {
-            await apiDelete(`/attendance/${currentStrataPlan}/${currentMeetingDate}/${lotValue}`);
-            currentSyncedAttendees = currentSyncedAttendees.filter(a => a.lot != lotValue);
+            await apiDelete(`/attendance/${attendanceId}`);
+            currentSyncedAttendees = currentSyncedAttendees.filter(a => a.id != attendanceId);
             updateDisplay(currentStrataPlan, currentSyncedAttendees, currentTotalLots, strataPlanCache);
             showToast(`Record for Lot ${lotValue} deleted.`, 'success');
         } catch (error) {
@@ -767,16 +1002,21 @@ async function handleDelete(event) {
 async function loadMeeting(spNumber, meetingData) {
     try {
         const { id, meetingDate, meetingType, quorumTotal } = meetingData;
+        
+        sessionStorage.setItem('activeMeeting', JSON.stringify({ spNumber, ...meetingData }));
+
         currentStrataPlan = spNumber;
         currentMeetingId = id;
         currentMeetingDate = meetingDate;
+        currentMeetingType = meetingType;
         currentTotalLots = quorumTotal;
 
         const formattedDate = new Date(meetingDate + 'T00:00:00').toLocaleDateString('en-AU', {
             day: 'numeric', month: 'long', year: 'numeric'
         });
         document.getElementById('meeting-title').textContent = `${meetingType} - SP ${spNumber}`;
-        document.getElementById('meeting-date').textContent = formattedDate;
+        meetingDateBtn.textContent = formattedDate;
+        meetingDateBtn.style.display = 'inline-block';
 
         const cachedData = localStorage.getItem(`strata_${spNumber}`);
         if (cachedData) {
@@ -814,10 +1054,56 @@ async function loadMeeting(spNumber, meetingData) {
     }
 }
 
+/**
+ * Prompts the user to select or create a meeting.
+ */
+async function promptForMeeting(spNumber) {
+    try {
+        const allMeetingsResult = await apiGet(`/meetings/${spNumber}`);
+        const existingMeetings = allMeetingsResult.success ? allMeetingsResult.meetings : [];
+
+        const chosenMeetingResult = await showMeetingModal(existingMeetings);
+
+        if (!chosenMeetingResult) {
+            strataPlanSelect.value = '';
+            currentStrataPlan = null;
+            return;
+        }
+
+        let meetingDataToLoad;
+
+        if (chosenMeetingResult.isNew) {
+            const newMeetingResponse = await apiPost('/meetings', { spNumber, ...chosenMeetingResult });
+            if (!newMeetingResponse.success) {
+                throw new Error(newMeetingResponse.error || 'Failed to create new meeting.');
+            }
+            meetingDataToLoad = {
+                id: newMeetingResponse.meeting.id,
+                meetingDate: chosenMeetingResult.meetingDate,
+                meetingType: newMeetingResponse.meeting.meeting_type,
+                quorumTotal: newMeetingResponse.meeting.quorum_total,
+            };
+        } else {
+            meetingDataToLoad = {
+                id: chosenMeetingResult.id,
+                meetingDate: chosenMeetingResult.meeting_date,
+                meetingType: chosenMeetingResult.meeting_type,
+                quorumTotal: chosenMeetingResult.quorum_total
+            };
+        }
+
+        await loadMeeting(spNumber, meetingDataToLoad);
+    } catch (err) {
+        console.error(`Failed during meeting setup for SP ${spNumber}:`, err);
+        showToast(`Error setting up meeting: ${err.message}`, 'error');
+        resetUiOnPlanChange();
+    }
+}
 
 async function handlePlanChange(event) {
     const spNumber = event.target.value;
     resetUiOnPlanChange();
+    sessionStorage.removeItem('activeMeeting');
 
     if (autoSyncIntervalId) clearInterval(autoSyncIntervalId);
 
@@ -829,67 +1115,25 @@ async function handlePlanChange(event) {
     }
 
     document.cookie = `selectedSP=${spNumber};max-age=2592000;path=/;SameSite=Lax`;
-
-    const today = new Date().toISOString().split('T')[0];
-    try {
-        const meetingCheck = await apiGet(`/meetings/${spNumber}/${today}`);
-
-        if (meetingCheck.success && meetingCheck.meeting) {
-            showToast(`Auto-loading today's meeting: ${meetingCheck.meeting.meeting_type}`, 'info');
-            await loadMeeting(spNumber, {
-                id: meetingCheck.meeting.id,
-                meetingDate: today,
-                meetingType: meetingCheck.meeting.meeting_type,
-                quorumTotal: meetingCheck.meeting.quorum_total
-            });
-        } else {
-            const allMeetingsResult = await apiGet(`/meetings/${spNumber}`);
-            const existingMeetings = allMeetingsResult.success ? allMeetingsResult.meetings : [];
-
-            const chosenMeetingResult = await showMeetingModal(existingMeetings);
-
-            if (!chosenMeetingResult) {
-                document.getElementById('strata-plan-select').value = '';
-                currentStrataPlan = null;
-                return;
-            }
-
-            let meetingDataToLoad;
-
-            if (chosenMeetingResult.isNew) {
-                const newMeetingResponse = await apiPost('/meetings', { spNumber, ...chosenMeetingResult });
-                if (!newMeetingResponse.success) {
-                    throw new Error(newMeetingResponse.error || 'Failed to create new meeting.');
-                }
-                meetingDataToLoad = {
-                    id: newMeetingResponse.meeting.id,
-                    meetingDate: chosenMeetingResult.meetingDate,
-                    meetingType: newMeetingResponse.meeting.meeting_type,
-                    quorumTotal: newMeetingResponse.meeting.quorum_total,
-                };
-            } else {
-                meetingDataToLoad = chosenMeetingResult;
-            }
-
-            await loadMeeting(spNumber, meetingDataToLoad);
-        }
-    } catch (err) {
-        console.error(`Failed during meeting setup for SP ${spNumber}:`, err);
-        showToast(`Error setting up meeting: ${err.message}`, 'error');
-        resetUiOnPlanChange();
-    }
+    await promptForMeeting(spNumber);
 }
 
 async function initializeApp() {
     if (isAppInitialized) return;
     isAppInitialized = true;
 
-    document.getElementById('login-section').classList.add('hidden');
-    document.getElementById('main-app').classList.remove('hidden');
+    loginSection.classList.add('hidden');
+    mainApp.classList.remove('hidden');
 
-    document.getElementById('check-in-tab-btn').addEventListener('click', (e) => openTab(e, 'check-in-tab'));
-    document.getElementById('strata-plan-select').addEventListener('change', handlePlanChange);
-    document.getElementById('lot-number').addEventListener('input', debounce((e) => {
+    checkInTabBtn.addEventListener('click', (e) => openTab(e, 'check-in-tab'));
+    strataPlanSelect.addEventListener('change', handlePlanChange);
+    meetingDateBtn.addEventListener('click', () => {
+        if (currentStrataPlan) {
+            promptForMeeting(currentStrataPlan);
+        }
+    });
+    emailPdfBtn.addEventListener('click', handleEmailReport);
+    lotNumberInput.addEventListener('input', debounce((e) => {
         if (e.target.value.trim() && strataPlanCache) {
             renderOwnerCheckboxes(e.target.value.trim(), strataPlanCache);
         }
@@ -897,6 +1141,7 @@ async function initializeApp() {
     document.getElementById('attendance-form').addEventListener('submit', handleFormSubmit);
     document.getElementById('attendee-table-body').addEventListener('click', handleDelete);
     document.getElementById('sync-btn').addEventListener('click', syncSubmissions);
+    
     document.getElementById('is-proxy').addEventListener('change', (e) => {
         const isChecked = e.target.checked;
         document.getElementById('proxy-holder-group').style.display = isChecked ? 'block' : 'none';
@@ -906,20 +1151,10 @@ async function initializeApp() {
 
     const user = JSON.parse(sessionStorage.getItem('attendanceUser'));
     if (user) {
-        document.getElementById('user-display').textContent = user.username;
+        userDisplay.textContent = user.username;
         if (user.role === 'Admin') {
-            document.getElementById('admin-panel').classList.remove('hidden');
+            adminPanel.classList.remove('hidden');
             setupAdminEventListeners();
-        }
-    }
-
-    const cachedPlans = localStorage.getItem('strataPlans');
-    if (cachedPlans) {
-        try {
-            renderStrataPlans(JSON.parse(cachedPlans));
-        } catch (e) {
-            console.error("Failed to parse cached strata plans", e);
-            localStorage.removeItem('strataPlans');
         }
     }
 
@@ -929,20 +1164,32 @@ async function initializeApp() {
             localStorage.setItem('strataPlans', JSON.stringify(data.plans));
             renderStrataPlans(data.plans);
 
+            const savedSP = document.cookie.split('; ').find(row => row.startsWith('selectedSP='))?.split('=')[1];
+            if (savedSP && strataPlanSelect.querySelector(`option[value="${savedSP}"]`)) {
+                strataPlanSelect.value = savedSP;
+            }
+
+            const cachedMeeting = JSON.parse(sessionStorage.getItem('activeMeeting'));
+            if (cachedMeeting && cachedMeeting.spNumber === strataPlanSelect.value) {
+                showToast('Resuming previous meeting session.', 'info');
+                await loadMeeting(cachedMeeting.spNumber, cachedMeeting);
+            } else if (strataPlanSelect.value) {
+                await promptForMeeting(strataPlanSelect.value);
+            }
+
             if (user && user.role !== 'Admin' && data.plans.length === 1) {
-                const strataPlanSelect = document.getElementById('strata-plan-select');
                 strataPlanSelect.value = data.plans[0].sp_number;
                 strataPlanSelect.disabled = true;
-                strataPlanSelect.dispatchEvent(new Event('change'));
+                if (!cachedMeeting) {
+                    strataPlanSelect.dispatchEvent(new Event('change'));
+                }
             }
         } else {
             throw new Error(data.error || 'Failed to load strata plans.');
         }
     } catch (err) {
         console.error('Failed to initialize strata plans:', err);
-        if (!cachedPlans) {
-             showToast('Error: Could not load strata plans.', 'error');
-        }
+        showToast('Error: Could not load strata plans.', 'error');
     }
 
     syncSubmissions();
@@ -956,11 +1203,11 @@ function setupAdminEventListeners() {
             loadUsers();
         });
     }
-    document.getElementById('logout-btn').addEventListener('click', handleLogout);
-    document.getElementById('change-password-btn').addEventListener('click', handleChangePassword);
-    document.getElementById('add-user-btn').addEventListener('click', handleAddUser);
-    document.getElementById('clear-cache-btn').addEventListener('click', handleClearCache);
-    document.getElementById('user-list-body').addEventListener('change', handleUserActions);
+    logoutBtn.addEventListener('click', handleLogout);
+    changePasswordBtn.addEventListener('click', handleChangePassword);
+    addUserBtn.addEventListener('click', handleAddUser);
+    clearCacheBtn.addEventListener('click', handleClearCache);
+    userListBody.addEventListener('change', handleUserActions);
 
     const collapsibleToggle = document.querySelector('.collapsible-toggle');
     if (collapsibleToggle) {
@@ -1004,6 +1251,7 @@ function handleClearCache() {
         .then(res => {
             if (res.confirmed) {
                 clearStrataCache();
+                sessionStorage.removeItem('activeMeeting');
                 saveSubmissionQueue([]);
                 document.cookie = 'selectedSP=; max-age=0; path=/;';
                 location.reload();
@@ -1012,24 +1260,20 @@ function handleClearCache() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const loginForm = document.getElementById('login-form');
-  if (loginForm) {
-      loginForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const loginResult = await handleLogin(e);
-        if (loginResult && loginResult.success) {
-            initializeApp();
-        }
-      });
-  } else {
-      console.error("Fatal Error: The login form with id 'login-form' was not found in the DOM. Check public/index.html.");
-  }
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const loginResult = await handleLogin(e);
+    if (loginResult && loginResult.success) {
+        initializeApp();
+    }
+  });
 
   const token = document.cookie.split('; ').find(r => r.startsWith('authToken='))?.split('=')[1];
   if (token) {
       initializeApp();
   }
 });
+
 ```
 
 ## public/auth.js
@@ -1368,7 +1612,8 @@ export const EMAIL_REGEX =
             <div class="header-container">
                  <h1>
                     <span id="meeting-title">Attendance Form</span>
-                    <small id="meeting-date"></small>
+                    <!-- Make the meeting date a button for changing the meeting -->
+                    <button id="meeting-date-btn" class="meeting-date-btn" style="display: none;"></button>
                 </h1>
                 <div id="quorum-display">Quorum: ...%</div>
             </div>
@@ -1423,7 +1668,13 @@ export const EMAIL_REGEX =
                 <div class="attendee-section">
                     <div class="attendee-header">
                         <h2>Current Attendees <span id="person-count"></span></h2>
-                        <button type="button" id="sync-btn" disabled>Sync</button>
+                        <div class="attendee-header">
+                            <h2>Current Attendees <span id="person-count"></span></h2>
+                            <div>
+                                <button type="button" id="email-pdf-btn">Email PDF Report</button>
+                                <button type="button" id="sync-btn" disabled>Sync</button>
+                            </div>
+                        </div>
                     </div>
                     <table class="attendee-table">
                         <thead>
@@ -1546,6 +1797,7 @@ export const EMAIL_REGEX =
     <script type="module" src="app.js"></script>
 </body>
 </html>
+
 ```
 
 ## public/style.css
@@ -1567,7 +1819,7 @@ body {
     box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
 }
 
-/* --- New Collapsible Styles --- */
+/* --- Collapsible Styles --- */
 .collapsible-toggle {
     background-color: #6c757d;
     color: white;
@@ -1624,10 +1876,11 @@ body {
     color: #6c757d;
 }
 
+/* --- Header Layout Fix --- */
 .header-container { 
     display: flex; 
     justify-content: space-between; 
-    align-items: center; 
+    align-items: flex-start; /* Align items to the top */
     margin-bottom: 1rem; 
     flex-wrap: wrap; 
     gap: 1rem; 
@@ -1640,14 +1893,27 @@ h1, h2 {
 h1 { 
     font-size: 1.75rem; 
     margin: 0; 
-    flex-grow: 1; 
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
 }
 
-h1 small { 
-    display: block; 
-    font-size: 0.8rem; 
-    font-weight: normal; 
-    color: #6c757d; 
+.meeting-date-btn {
+    width: auto; /* Fit button to text content */
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+    background-color: #007bff;
+    border: none;
+    color: white;
+    cursor: pointer;
+    border-radius: 4px;
+    line-height: 1.2;
+}
+
+.meeting-date-btn:hover {
+    background-color: #0056b3;
 }
 
 .hidden { 
@@ -1660,7 +1926,8 @@ h1 small {
     font-weight: bold; 
     color: white; 
     text-align: center; 
-    line-height: 1.2; 
+    line-height: 1.2;
+    flex-shrink: 0; /* Prevent the box from shrinking */
 }
 
 #quorum-display small { 
@@ -1678,7 +1945,7 @@ label {
     font-weight: bold; 
 }
 
-input[type="text"], input[type="password"], select { 
+input[type="text"], input[type="password"], select, input[type="number"], input[type="date"] { 
     width: 100%; 
     padding: 0.75rem; 
     border: 1px solid #ccc; 
@@ -1726,26 +1993,17 @@ button:disabled {
     cursor: not-allowed; 
 }
 
-#email-pdf-btn {
-    width: auto;
-    margin-top: 0;
-}
-
-#email-pdf-btn, #change-meeting-type-btn, #import-csv-btn { 
+#import-csv-btn { 
     background-color: #17a2b8; 
     margin-top: 1rem; 
 }
 
-#email-pdf-btn:hover, #change-meeting-type-btn:hover, #import-csv-btn:hover { 
+#import-csv-btn:hover { 
     background-color: #138496; 
 }
 
 #sync-btn { 
     width: auto;
-}
-
-#sync-btn:hover { 
-    background-color: #5a6268; 
 }
 
 #clear-cache-btn, #logout-btn { 
@@ -1764,7 +2022,7 @@ button:disabled {
     min-height: 1.2em; 
 }
 
-.attendee-section, .user-management-section { 
+.attendee-section { 
     margin-top: 2rem; 
     border-top: 1px solid #eee; 
     padding-top: 1.5rem; 
@@ -1804,7 +2062,8 @@ button:disabled {
     border: none; 
     padding: 5px 10px; 
     border-radius: 4px; 
-    cursor: pointer; 
+    cursor: pointer;
+    width: auto;
 }
 
 #company-rep-group, #proxy-holder-group { 
@@ -1951,38 +2210,42 @@ button:disabled {
     border-radius: 0 0 8px 8px;
 }
 
-.report-date-selector {
-    margin-top: 1.5rem;
-    margin-bottom: 0.5rem;
-    display: flex; 
-    align-items: flex-end; 
-    gap: 0.5rem; 
-}
-
-.report-date-selector label {
-    font-weight: bold;
-    margin-bottom: 0;
-    display: block;
-    flex-shrink: 0;
-}
-
-#report-date {
-    width: auto; 
-    flex-grow: 1; 
-}
-
 .strata-plan-container {
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-#change-meeting-type-btn {
-    width: auto;
-    margin-top: 0;
-    flex-shrink: 0;
+/* Media query for mobile stacking */
+@media (max-width: 600px) {
+    .header-container {
+        flex-direction: column;
+        align-items: stretch; /* Make items full width */
+    }
+
+    h1 {
+        align-items: center; /* Center title and button */
+        text-align: center;
+    }
+
+    #quorum-display {
+        width: 100%; /* Make quorum box full width on mobile */
+        box-sizing: border-box;
+    }
+}
+.attendee-header div {
+    display: flex;
+    gap: 0.5rem;
 }
 
+#email-pdf-btn {
+    width: auto;
+    background-color: #17a2b8;
+}
+
+#email-pdf-btn:hover {
+    background-color: #138496;
+}
 ```
 
 ## public/ui.js
@@ -2025,7 +2288,6 @@ export const renderOwnerCheckboxes = (lot, ownersCache) => {
     }
 
     if (companyName) {
-        // **THE FIX**: Add a hidden input to store the company name for submission.
         checkboxContainer.innerHTML = `
             <p><b>Company Lot:</b> ${companyName}</p>
             <input type="hidden" id="company-name-hidden" value="${companyName}">
@@ -2067,15 +2329,15 @@ export const renderOwnerCheckboxes = (lot, ownersCache) => {
  */
 export const updateDisplay = (sp, currentSyncedAttendees, currentTotalLots, strataPlanCache) => {
     if (!sp) return;
-    
+
     const queuedAttendees = getSubmissionQueue()
         .filter(s => s.sp === sp)
         .map(s => ({...s, status: 'queued'}));
 
     const allAttendees = [...currentSyncedAttendees, ...queuedAttendees];
-    
+
     const attendedLots = new Set(allAttendees.map(attendee => String(attendee.lot)));
-    
+
     renderAttendeeTable(allAttendees, strataPlanCache);
     updateQuorumDisplay(attendedLots.size, currentTotalLots);
     updateSyncButton();
@@ -2094,7 +2356,11 @@ export const resetUiOnPlanChange = () => {
     document.getElementById('lot-number').disabled = true;
     document.getElementById('financial-label').lastChild.nodeValue = " Is Financial?";
     document.getElementById('meeting-title').textContent = 'Attendance Form';
-    document.getElementById('meeting-date').textContent = '';
+    
+    const meetingDateBtn = document.getElementById('meeting-date-btn');
+    meetingDateBtn.textContent = '';
+    meetingDateBtn.style.display = 'none';
+
     document.getElementById('company-rep-group').style.display = 'none';
 };
 
@@ -2110,22 +2376,15 @@ export const renderStrataPlans = (plans) => {
     };
 
     strataPlanSelect.innerHTML = '<option value="">Select a plan...</option>';
-    plans.sort((a, b) => a.sp_number - b.sp_number); 
+    plans.sort((a, b) => a.sp_number - b.sp_number);
     plans.forEach(plan => {
         const option = document.createElement('option');
-        option.value = plan.sp_number; 
+        option.value = plan.sp_number;
         option.textContent = `${plan.sp_number} - ${plan.suburb}`;
         strataPlanSelect.appendChild(option);
     });
 
     strataPlanSelect.disabled = false;
-
-    const savedSP = document.cookie.split('; ').find(row => row.startsWith('selectedSP='))?.split('=')[1];
-
-    if (savedSP && strataPlanSelect.querySelector(`option[value="${savedSP}"]`)) {
-        strataPlanSelect.value = savedSP;
-        strataPlanSelect.dispatchEvent(new Event('change'));
-    }
 };
 
 /**
@@ -2134,7 +2393,7 @@ export const renderStrataPlans = (plans) => {
 export const renderAttendeeTable = (attendees, strataPlanCache) => {
     const attendeeTableBody = document.getElementById('attendee-table-body');
     const personCountSpan = document.getElementById('person-count');
-    
+
     const syncedCount = attendees.filter(item => item.status !== 'queued').length;
     personCountSpan.textContent = `(${syncedCount} ${syncedCount === 1 ? 'person' : 'people'})`;
     attendeeTableBody.innerHTML = '';
@@ -2152,23 +2411,34 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
         const isQueued = item.status === 'queued';
 
         const isProxy = item.is_proxy;
-        const isCompany = !isProxy && item.rep_name;
-
-        let ownerRepName = item.owner_name;
-        let companyName = isCompany ? item.rep_name : '';
-        let rowColor = '#d4e3c1'; 
-
-        if(isQueued) rowColor = '#f5e0df';
-        else if(isProxy) rowColor = '#c1e1e3';
-        else if(isCompany) rowColor = '#cbc1e3';
+        const isCompany = !isProxy && item.rep_name && item.rep_name !== 'N/A';
         
+        let ownerRepName;
+        let companyName = ''; // Default to empty
+        let rowColor = '#d4e3c1'; // Default color for regular owner
+
+        if (isProxy) {
+            ownerRepName = item.rep_name; // Show "Proxy - Lot X" in the main name column
+            rowColor = '#c1e1e3'; // Proxy color
+        } else if (isCompany) {
+            ownerRepName = item.owner_name; // Show company name
+            companyName = item.rep_name; // Show representative's name in the company column
+            rowColor = '#cbc1e3'; // Company color
+        } else {
+            ownerRepName = item.owner_name; // Regular owner name
+        }
+
+        if (isQueued) {
+            rowColor = '#f5e0df'; // Queued color overrides others
+        }
+
         const row = document.createElement('tr');
         row.style.backgroundColor = rowColor;
-        
-        const deleteButton = isQueued 
+
+        const deleteButton = isQueued
             ? `<button class="delete-btn" data-type="queued" data-submission-id="${item.submissionId}">Delete</button>`
-            : `<button class="delete-btn" data-type="synced" data-lot="${item.lot}">Delete</button>`;
-        
+            : `<button class="delete-btn" data-type="synced" data-id="${item.id}" data-lot="${item.lot}">Delete</button>`;
+
         row.innerHTML = `
             <td>${item.lot}</td>
             <td>${unitNumber}</td>
@@ -2186,7 +2456,7 @@ export const renderAttendeeTable = (attendees, strataPlanCache) => {
 export const updateQuorumDisplay = (count = 0, total = 0) => {
     const quorumDisplay = document.getElementById('quorum-display');
     const percentage = total > 0 ? Math.floor((count / total) * 100) : 0;
-    
+
     const quorumThreshold = Math.ceil(total * 0.25);
     const isQuorumMet = count >= quorumThreshold;
 
@@ -2200,7 +2470,7 @@ export const updateQuorumDisplay = (count = 0, total = 0) => {
 export const updateSyncButton = (isSyncing = false) => {
     const syncBtn = document.getElementById('sync-btn');
     if (!syncBtn) return;
-    
+
     const queue = getSubmissionQueue();
     if (queue.length > 0) {
         syncBtn.disabled = isSyncing;
@@ -2210,6 +2480,7 @@ export const updateSyncButton = (isSyncing = false) => {
         syncBtn.textContent = 'Synced';
     }
 };
+
 ```
 
 ## public/utils.js

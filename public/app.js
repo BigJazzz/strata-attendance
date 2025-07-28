@@ -231,6 +231,8 @@ async function handleEmailReport() {
                     throw new Error(result.error);
                 }
             },
+            // Add this margin property
+            margin: [40, 40, 40, 40],
             width: pdf.internal.pageSize.getWidth(),
             windowWidth: 650 // Adjust this width to match your report's desired appearance
         });

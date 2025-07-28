@@ -3,9 +3,69 @@ import { createClient } from '@libsql/client';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import Papa from 'papaparse';
+import nodemailer from 'nodemailer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+
 
 const app = express();
 app.use(express.json({ limit: '10mb' }));
+
+// --- Email and PDF Endpoint ---
+app.post('/api/report/email', authenticate, async (req, res) => {
+    const { recipientEmail, reportHtml, meetingTitle } = req.body;
+
+    if (!recipientEmail || !reportHtml || !meetingTitle) {
+        return res.status(400).json({ error: 'Missing required report data.' });
+    }
+
+    try {
+        // 1. Generate PDF from HTML
+        const browser = await puppeteer.launch({
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+        });
+        const page = await browser.newPage();
+        await page.setContent(reportHtml, { waitUntil: 'networkidle0' });
+        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
+        await browser.close();
+    
+        // 2. Send Email with PDF Attachment
+        // IMPORTANT: Replace with your own email service credentials from environment variables
+        const transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST, // e.g., 'smtp.gmail.com'
+            port: process.env.SMTP_PORT, // e.g., 587
+            secure: process.env.SMTP_PORT == 465, // true for 465, false for other ports
+            auth: {
+                user: process.env.SMTP_USER, // Your email address
+                pass: process.env.SMTP_PASS, // Your email password or app-specific password
+            },
+        });
+
+        await transporter.sendMail({
+            from: `"Strata Attendance App" <${process.env.SMTP_USER}>`,
+            to: recipientEmail,
+            subject: `Attendance Report: ${meetingTitle}`,
+            text: `Please find the attendance report for "${meetingTitle}" attached.`,
+            attachments: [
+                {
+                    filename: 'Attendance-Report.pdf',
+                    content: pdfBuffer,
+                    contentType: 'application/pdf',
+                },
+            ],
+        });
+
+        res.json({ success: true, message: `Report sent to ${recipientEmail}` });
+
+    } catch (err) {
+        console.error('[EMAIL REPORT ERROR]', err);
+        res.status(500).json({ error: `Failed to send report: ${err.message}` });
+    }
+});
+
 
 // --- Turso Client Caching & DB Helpers ---
 let cachedDb = null;
@@ -66,7 +126,6 @@ app.get('/api/meetings/:spNumber', authenticate, async (req, res) => {
     }
 });
 
-// THIS ENDPOINT WAS MISSING - IT IS NOW CORRECTLY ADDED BACK
 app.get('/api/meetings/:spNumber/:date', authenticate, async (req, res) => {
     try {
         const { spNumber, date } = req.params;
@@ -192,7 +251,6 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
     const db = getDb();
     const tx = await db.transaction('write');
     try {
-        // Ensure all strata plan numbers are strings for consistent lookup
         const spNumbers = [...new Set(submissions.map(s => String(s.sp)))];
         
         const planIdsResult = await tx.execute({
@@ -200,24 +258,20 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
             args: spNumbers
         });
 
-        // Create a Map where the keys are explicitly strings
         const planIdMap = new Map(
             planIdsResult.rows.map(row => [String(row[1]), row[0]])
         );
 
         for (const sub of submissions) {
-            // THE FIX: Convert sub.sp to a string here to ensure the lookup key matches the map's key type.
             const plan_id = planIdMap.get(String(sub.sp));
             
             if (!plan_id) {
                 console.warn(`[SKIPPED] SP number not found in map: "${sub.sp}"`);
-                continue; // Skip this submission if its strata plan doesn't exist
+                continue;
             }
 
             const rep_name = sub.rep_name || null;
 
-            // This "delete-then-insert" pattern ensures that resubmitting the same attendee
-            // updates their record instead of creating a duplicate.
             await tx.execute({
                 sql: `DELETE FROM attendance
                       WHERE meeting_id = ? AND lot = ? AND owner_name = ? AND rep_name = ?`,
@@ -243,6 +297,7 @@ app.post('/api/attendance/batch', authenticate, async (req, res) => {
         res.status(500).json({ error: `An error occurred during batch submission: ${err.message}` });
     }
 });
+
 
 app.post('/api/attendance/verify', authenticate, async (req, res) => {
     const { records } = req.body;

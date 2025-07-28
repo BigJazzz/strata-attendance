@@ -26,7 +26,6 @@ const exclude = [
   'password.js',
   'favicon.ico',
   '.gitignore',
-  'package.json',
   'merge-files.cjs'
 ];
 

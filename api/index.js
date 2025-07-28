@@ -25,7 +25,8 @@ app.post('/api/report/email', authenticate, async (req, res) => {
             args: chromium.args,
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
-            headless: chromium.headless,
+            // FIX: Explicitly use the new headless mode for better compatibility in serverless environments.
+            headless: "new",
         });
         const page = await browser.newPage();
         await page.setContent(reportHtml, { waitUntil: 'networkidle0' });

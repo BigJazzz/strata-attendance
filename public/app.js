@@ -175,6 +175,8 @@ function generateReportHtml() {
 /**
  * Handles the click event for the "Email PDF Report" button.
  */
+const { jsPDF } = window.jspdf;
+
 async function handleEmailReport() {
     if (!currentStrataPlan || !currentMeetingDate) {
         showToast('Please select a meeting before generating a report.', 'error');
@@ -194,20 +196,48 @@ async function handleEmailReport() {
     emailPdfBtn.disabled = true;
 
     try {
-        const reportHtml = generateReportHtml();
+        // 1. Generate PDF client-side
+        const reportHtmlString = generateReportHtml();
         const meetingTitle = `${currentMeetingType} - SP ${currentStrataPlan}`;
-        
-        const result = await apiPost('/report/email', {
-            recipientEmail,
-            reportHtml,
-            meetingTitle
+
+        // Create a temporary element to render HTML for capturing
+        const container = document.createElement('div');
+        container.innerHTML = reportHtmlString;
+        document.body.appendChild(container);
+
+        const pdf = new jsPDF({
+            orientation: 'p',
+            unit: 'px',
+            format: 'a4',
+            hotfixes: ['px_scaling'],
         });
 
-        if (result.success) {
-            showToast(result.message, 'success');
-        } else {
-            throw new Error(result.error);
-        }
+        // Use html2canvas to render the HTML, then add it to the PDF
+        await pdf.html(container, {
+            callback: async function (doc) {
+                // Get the PDF as a Base64 string
+                const pdfBase64 = doc.output('datauristring').split(',')[1];
+
+                // 2. Send Base64 data to the server
+                const result = await apiPost('/report/email', {
+                    recipientEmail,
+                    pdfBase64, // Send the PDF data instead of HTML
+                    meetingTitle
+                });
+
+                if (result.success) {
+                    showToast(result.message, 'success');
+                } else {
+                    throw new Error(result.error);
+                }
+            },
+            width: pdf.internal.pageSize.getWidth(),
+            windowWidth: 650 // Adjust this width to match your report's desired appearance
+        });
+
+        // Clean up the temporary element
+        document.body.removeChild(container);
+
     } catch (err) {
         console.error('Failed to email report:', err);
         showToast(`Error: ${err.message}`, 'error');
@@ -215,6 +245,7 @@ async function handleEmailReport() {
         emailPdfBtn.disabled = false;
     }
 }
+
 
 
 /**

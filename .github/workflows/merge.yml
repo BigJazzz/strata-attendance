@@ -25,10 +25,18 @@ jobs:
           node merge-files.cjs
 
       # Simplified commit step
-      - name: Commit merged file
+      - name: Commit and push if changes exist
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add copilot.md
+          
+          # Check for staged changes. If none, exit peacefully.
+          if git diff --staged --quiet; then
+            echo "No changes to commit. Working tree clean."
+            exit 0
+          fi
+          
+          # If there are changes, commit and push them.
           git commit -m "Auto-merged files into markdown"
           git push

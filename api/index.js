@@ -22,10 +22,10 @@ app.post('/api/report/email', authenticate, async (req, res) => {
     try {
         // 1. Generate PDF from HTML
         const browser = await puppeteer.launch({
-            args: chromium.args,
+            // FIX: Add the '--no-sandbox' flag to the arguments.
+            args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox'],
             defaultViewport: chromium.defaultViewport,
             executablePath: await chromium.executablePath(),
-            // FIX: Explicitly use the new headless mode for better compatibility in serverless environments.
             headless: "new",
         });
         const page = await browser.newPage();
@@ -34,14 +34,13 @@ app.post('/api/report/email', authenticate, async (req, res) => {
         await browser.close();
     
         // 2. Send Email with PDF Attachment
-        // IMPORTANT: Replace with your own email service credentials from environment variables
         const transporter = nodemailer.createTransport({
-            host: process.env.SMTP_HOST, // e.g., 'smtp.gmail.com'
-            port: process.env.SMTP_PORT, // e.g., 587
-            secure: process.env.SMTP_PORT == 465, // true for 465, false for other ports
+            host: process.env.SMTP_HOST,
+            port: process.env.SMTP_PORT,
+            secure: process.env.SMTP_PORT == 465,
             auth: {
-                user: process.env.SMTP_USER, // Your email address
-                pass: process.env.SMTP_PASS, // Your email password or app-specific password
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS,
             },
         });
 

@@ -607,6 +607,34 @@ export default app;
 
 ```
 
+## package.json
+```json
+{
+  "name": "strata-attendance-fullstack",
+  "version": "1.0.0",
+  "description": "Full-stack Strata Attendance App",
+  "main": "api/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node api/index.js"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.10",
+    "@sparticuz/chromium": "^123.0.1",
+    "bcrypt": "^6.0.0",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.14",
+    "papaparse": "^5.5.3",
+    "puppeteer-core": "^22.12.1"
+  },
+  "engines": {
+    "node": ">=18.x"
+  }
+}
+
+```
+
 ## public/app.js
 ```javascript
 import {

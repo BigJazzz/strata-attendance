@@ -35,6 +35,12 @@ export async function handleLogin(event) {
     if (data.success && data.token) {
       document.cookie = `authToken=${data.token};max-age=604800;path=/;SameSite=Lax`;
       sessionStorage.setItem('attendanceUser', JSON.stringify(data.user));
+
+      // If the server indicates a password change is needed, set a flag.
+      if (data.mustChangePassword) {
+        sessionStorage.setItem('mustChangePassword', 'true');
+      }
+
       if (data.scriptVersion) {
         sessionStorage.setItem('scriptVersion', data.scriptVersion);
       }
@@ -199,7 +205,7 @@ export async function handleChangePassword() {
   });
   if (!pRes.confirmed || !pRes.value) {
     showToast('Password cannot be blank.', 'error');
-    return;
+    return false; // Return false on cancel or blank
   }
 
   try {
@@ -210,11 +216,17 @@ export async function handleChangePassword() {
       body: JSON.stringify({ newPassword: pRes.value })
     });
     const data = await res.json();
-    if (data.success) showToast('Password changed successfully.', 'success');
-    else throw new Error(data.error);
+    if (data.success) {
+      sessionStorage.removeItem('mustChangePassword'); // Clear the flag on success
+      showToast('Password changed successfully.', 'success');
+      return true; // Return true on success
+    } else {
+      throw new Error(data.error);
+    }
   } catch (err) {
     showToast(`Failed to change password: ${err.message}`, 'error');
     if (err.message.includes('Authentication failed')) handleLogout();
+    return false; // Return false on error
   }
 }
 

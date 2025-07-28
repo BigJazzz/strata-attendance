@@ -338,12 +338,18 @@ app.post('/api/login', async (req, res) => {
     if (!bcrypt.compareSync(password, userObject.password_hash)) {
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
+
+    // Check if the successful login used the default password.
+    const defaultPassword = 'Password123!'; // This is the default password used when resetting
+    const mustChangePassword = (password === defaultPassword);
+
     const { id, role, plan_id } = userObject;
     const token = jwt.sign({ id, username, role, plan_id }, process.env.JWT_SECRET, { expiresIn: '7d' });
     res.json({
       success: true,
       token,
-      user: { username, role, spAccess: plan_id }
+      user: { username, role, spAccess: plan_id },
+      mustChangePassword // Add the flag to the response
     });
   } catch (err) {
     console.error('[LOGIN ERROR]', err);

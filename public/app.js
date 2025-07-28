@@ -543,6 +543,19 @@ async function handlePlanChange(event) {
 }
 
 async function initializeApp() {
+    // Check for mandatory password change at the very start.
+    if (sessionStorage.getItem('mustChangePassword') === 'true') {
+        await showModal("You are using a temporary password. You must create a new password to continue.", { confirmText: "OK", cancelText: ""});
+        const passwordChanged = await handleChangePassword(); // This will now return true or false
+        if (passwordChanged) {
+            showToast("Password updated. Please log in again.", "success", 4000);
+        } else {
+            showToast("A password change is required to proceed. Logging out.", "error", 4000);
+        }
+        handleLogout(); // Log the user out to force a re-login with the new password.
+        return; // Halt further app initialization.
+    }
+
     if (isAppInitialized) return;
     isAppInitialized = true;
 

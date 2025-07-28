@@ -20,6 +20,7 @@ app.post('/api/report/email', authenticate, async (req, res) => {
     }
 
     try {
+        console.log('Chromium executable path:', await chromium.executablePath());
         // 1. Generate PDF from HTML
         const browser = await puppeteer.launch({
             // FIX: Add the '--no-sandbox' flag to the arguments.

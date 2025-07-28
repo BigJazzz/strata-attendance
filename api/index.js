@@ -4,8 +4,6 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import Papa from 'papaparse';
 import nodemailer from 'nodemailer';
-import puppeteer from 'puppeteer-core';
-import chromium from '@sparticuz/chromium';
 
 
 const app = express();
@@ -13,28 +11,18 @@ app.use(express.json({ limit: '10mb' }));
 
 // --- Email and PDF Endpoint ---
 app.post('/api/report/email', authenticate, async (req, res) => {
-    const { recipientEmail, reportHtml, meetingTitle } = req.body;
+    // Now receiving pdfBase64 instead of reportHtml
+    const { recipientEmail, pdfBase64, meetingTitle } = req.body;
 
-    if (!recipientEmail || !reportHtml || !meetingTitle) {
+    if (!recipientEmail || !pdfBase64 || !meetingTitle) {
         return res.status(400).json({ error: 'Missing required report data.' });
     }
 
     try {
-        console.log('Chromium executable path:', await chromium.executablePath());
-        // 1. Generate PDF from HTML
-        const browser = await puppeteer.launch({
-            // FIX: Add the '--no-sandbox' flag to the arguments.
-            args: [...chromium.args, '--no-sandbox', '--disable-setuid-sandbox'],
-            defaultViewport: chromium.defaultViewport,
-            executablePath: await chromium.executablePath(),
-            headless: "new",
-        });
-        const page = await browser.newPage();
-        await page.setContent(reportHtml, { waitUntil: 'networkidle0' });
-        const pdfBuffer = await page.pdf({ format: 'A4', printBackground: true });
-        await browser.close();
+        // 1. Convert Base64 string back to a Buffer for the attachment
+        const pdfBuffer = Buffer.from(pdfBase64, 'base64');
     
-        // 2. Send Email with PDF Attachment
+        // 2. Send Email with the received PDF Attachment
         const transporter = nodemailer.createTransport({
             host: process.env.SMTP_HOST,
             port: process.env.SMTP_PORT,

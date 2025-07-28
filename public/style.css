@@ -429,3 +429,16 @@ button:disabled {
         box-sizing: border-box;
     }
 }
+.attendee-header div {
+    display: flex;
+    gap: 0.5rem;
+}
+
+#email-pdf-btn {
+    width: auto;
+    background-color: #17a2b8;
+}
+
+#email-pdf-btn:hover {
+    background-color: #138496;
+}

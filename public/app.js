@@ -31,6 +31,8 @@ import {
     updateSyncButton
 } from './ui.js';
 
+import { EMAIL_REGEX } from './config.js';
+
 // --- DOM Elements ---
 const loginForm = document.getElementById('login-form');
 const logoutBtn = document.getElementById('logout-btn');
@@ -46,17 +48,174 @@ const strataPlanSelect = document.getElementById('strata-plan-select');
 const lotNumberInput = document.getElementById('lot-number');
 const checkInTabBtn = document.getElementById('check-in-tab-btn');
 const meetingDateBtn = document.getElementById('meeting-date-btn');
+const emailPdfBtn = document.getElementById('email-pdf-btn');
 
 // --- App State ---
 let currentStrataPlan = null;
 let currentMeetingId = null;
 let currentMeetingDate = null;
+let currentMeetingType = null;
 let strataPlanCache = {};
 let currentSyncedAttendees = [];
 let currentTotalLots = 0;
 let isSyncing = false;
 let autoSyncIntervalId = null;
 let isAppInitialized = false;
+
+/**
+ * Generates the HTML content for the PDF report.
+ */
+function generateReportHtml() {
+    const allAttendees = [...currentSyncedAttendees, ...getSubmissionQueue().filter(s => s.sp === currentStrataPlan)];
+    allAttendees.sort((a, b) => a.lot - b.lot);
+
+    let tableRows = '';
+    let uniqueLots = new Set();
+    let peopleCount = 0;
+    let proxyCount = 0;
+    let companyCount = 0;
+
+    allAttendees.forEach((item, index) => {
+        const lotData = strataPlanCache ? strataPlanCache[item.lot] : null;
+        const unitNumber = lotData ? (lotData[2] || 'N/A') : 'N/A';
+        const isProxy = item.is_proxy;
+        const isCompany = !isProxy && item.rep_name && item.rep_name !== 'N/A';
+        
+        let ownerRepName;
+        let companyName = '';
+
+        uniqueLots.add(item.lot);
+
+        if (isProxy) {
+            ownerRepName = item.rep_name;
+            proxyCount++;
+        } else if (isCompany) {
+            ownerRepName = item.owner_name;
+            companyName = item.rep_name;
+            companyCount++;
+            if (item.rep_name) peopleCount++; // Count the rep as a person
+        } else {
+            ownerRepName = item.owner_name;
+            // Count multiple people if "and" or "&" is present
+            peopleCount += (ownerRepName.match(/(&|and)/gi) || []).length + 1;
+        }
+
+        const rowStyle = index % 2 === 0 ? '' : 'background-color: #f0f0f2;';
+
+        tableRows += `
+            <tr style="${rowStyle}">
+                <td style="border: 1px solid #ddd; padding: 10px;">${item.lot}</td>
+                <td style="border: 1px solid #ddd; padding: 10px;">${unitNumber}</td>
+                <td style="border: 1px solid #ddd; padding: 10px;">${ownerRepName}</td>
+                <td style="border: 1px solid #ddd; padding: 10px;">${companyName}</td>
+            </tr>
+        `;
+    });
+
+    const formattedDate = new Date(currentMeetingDate + 'T00:00:00').toLocaleDateString('en-AU', {
+        day: 'numeric', month: 'long', year: 'numeric'
+    });
+
+    return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Attendance Report</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; color: #333; }
+                table { width: 100%; border-collapse: collapse; }
+                th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+                th { background-color: #f2f2f2; }
+            </style>
+        </head>
+        <body>
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h1 style="margin: 0; font-size: 24px;">Strata Plan ${currentStrataPlan} - Attendance Report</h1>
+                <p style="margin: 5px 0 0; font-size: 16px; color: #555;">
+                    <strong>Meeting Type:</strong> ${currentMeetingType} | <strong>Date:</strong> ${formattedDate}
+                </p>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Lot</th>
+                        <th>Unit</th>
+                        <th>Owner/Rep</th>
+                        <th>Company</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${tableRows}
+                </tbody>
+            </table>
+            <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #ccc; width: 300px; margin-left: auto;">
+                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                    <span style="font-weight: bold;">Unique Lots Represented:</span>
+                    <span>${uniqueLots.size}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                    <span style="font-weight: bold;">People in Attendance:</span>
+                    <span>${peopleCount}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                    <span style="font-weight: bold;">Proxies Received:</span>
+                    <span>${proxyCount}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+                    <span style="font-weight: bold;">Companies Represented:</span>
+                    <span>${companyCount}</span>
+                </div>
+            </div>
+        </body>
+        </html>
+    `;
+}
+
+
+/**
+ * Handles the click event for the "Email PDF Report" button.
+ */
+async function handleEmailReport() {
+    if (!currentStrataPlan || !currentMeetingDate) {
+        showToast('Please select a meeting before generating a report.', 'error');
+        return;
+    }
+
+    const res = await showModal('Enter the recipient\'s email address:', { showInput: true, confirmText: 'Send Email' });
+    if (!res.confirmed || !res.value) return;
+
+    const recipientEmail = res.value.trim();
+    if (!EMAIL_REGEX.test(recipientEmail)) {
+        showToast('Invalid email address provided.', 'error');
+        return;
+    }
+
+    showToast('Generating and sending report...', 'info');
+    emailPdfBtn.disabled = true;
+
+    try {
+        const reportHtml = generateReportHtml();
+        const meetingTitle = `${currentMeetingType} - SP ${currentStrataPlan}`;
+        
+        const result = await apiPost('/report/email', {
+            recipientEmail,
+            reportHtml,
+            meetingTitle
+        });
+
+        if (result.success) {
+            showToast(result.message, 'success');
+        } else {
+            throw new Error(result.error);
+        }
+    } catch (err) {
+        console.error('Failed to email report:', err);
+        showToast(`Error: ${err.message}`, 'error');
+    } finally {
+        emailPdfBtn.disabled = false;
+    }
+}
+
 
 /**
  * Handles the main form submission for checking in an attendee.
@@ -82,17 +241,13 @@ function handleFormSubmit(event) {
 
     let owner_name = companyName || selectedNames.join(', ');
 
-    // If it's a proxy vote, the owner name isn't selected in the UI.
-    // We must retrieve it from the cache to know who is GIVING the proxy.
     if (isProxy) {
         const ownerData = strataPlanCache[lot];
         if (ownerData) {
-            // Use the main contact or title name from the cache.
             owner_name = ownerData[0] || ownerData[1];
         }
     }
 
-    // Now, run validation with the potentially retrieved owner_name.
     if (!owner_name) {
         showToast(`Could not find owner data for Lot ${lot}. Please check the lot number.`, 'error');
         return;
@@ -133,7 +288,6 @@ function handleFormSubmit(event) {
     document.getElementById('proxy-holder-group').style.display = 'none';
     document.getElementById('checkbox-container').innerHTML = '<p>Enter a Lot Number.</p>';
     
-    // Manually reset the UI for the owner's box to ensure it's visible for the next entry.
     document.getElementById('checkbox-container').style.display = 'block';
     document.getElementById('owner-label').style.display = 'block';
 
@@ -141,20 +295,24 @@ function handleFormSubmit(event) {
 }
 
 /**
- * Sends the queued submissions to the server and verifies success.
+ * Sends the queued submissions to the server.
  */
 async function syncSubmissions() {
     if (isSyncing || !navigator.onLine) return;
 
-    // Isolate the batch to be synced.
-    const batchToSync = getSubmissionQueue();
-    if (batchToSync.length === 0) {
+    const allItems = getSubmissionQueue();
+    if (allItems.length === 0) {
         updateSyncButton();
         return;
     }
+    
+    // Isolate the batch to be synced.
+    const batchToSync = allItems.filter(item => item.sp === currentStrataPlan);
+    if (batchToSync.length === 0) return;
 
-    // Immediately clear the main queue. New items can now be added safely.
-    saveSubmissionQueue([]);
+    // Remove the items for the current plan from the main queue
+    const remainingItems = allItems.filter(item => item.sp !== currentStrataPlan);
+    saveSubmissionQueue(remainingItems);
 
     isSyncing = true;
     updateSyncButton(true);
@@ -172,20 +330,17 @@ async function syncSubmissions() {
             throw new Error(postResult.error || 'Batch submission failed.');
         }
 
-        // On success, the items are already gone from the queue. We're done.
         showToast(`Successfully synced ${batchToSync.length} item(s).`, 'success');
 
     } catch (error) {
         console.error('[SYNC FAILED]', error);
         showToast(`Sync failed: ${error.message}. Items have been re-queued.`, 'error');
 
-        // On failure, add the failed batch back to the start of the queue.
         const currentQueue = getSubmissionQueue();
         saveSubmissionQueue([...batchToSync, ...currentQueue]);
 
     } finally {
         isSyncing = false;
-        // Always refresh the display with the latest data from the server.
         if (currentStrataPlan && currentMeetingDate) {
             const data = await apiGet(`/attendance/${currentStrataPlan}/${currentMeetingDate}`);
             if (data.success) {
@@ -237,12 +392,12 @@ async function loadMeeting(spNumber, meetingData) {
     try {
         const { id, meetingDate, meetingType, quorumTotal } = meetingData;
         
-        // Save the active meeting to sessionStorage
         sessionStorage.setItem('activeMeeting', JSON.stringify({ spNumber, ...meetingData }));
 
         currentStrataPlan = spNumber;
         currentMeetingId = id;
         currentMeetingDate = meetingDate;
+        currentMeetingType = meetingType;
         currentTotalLots = quorumTotal;
 
         const formattedDate = new Date(meetingDate + 'T00:00:00').toLocaleDateString('en-AU', {
@@ -337,7 +492,7 @@ async function promptForMeeting(spNumber) {
 async function handlePlanChange(event) {
     const spNumber = event.target.value;
     resetUiOnPlanChange();
-    sessionStorage.removeItem('activeMeeting'); // Clear meeting cache on plan change
+    sessionStorage.removeItem('activeMeeting');
 
     if (autoSyncIntervalId) clearInterval(autoSyncIntervalId);
 
@@ -366,6 +521,7 @@ async function initializeApp() {
             promptForMeeting(currentStrataPlan);
         }
     });
+    emailPdfBtn.addEventListener('click', handleEmailReport);
     lotNumberInput.addEventListener('input', debounce((e) => {
         if (e.target.value.trim() && strataPlanCache) {
             renderOwnerCheckboxes(e.target.value.trim(), strataPlanCache);
@@ -375,7 +531,6 @@ async function initializeApp() {
     document.getElementById('attendee-table-body').addEventListener('click', handleDelete);
     document.getElementById('sync-btn').addEventListener('click', syncSubmissions);
     
-    // Hide owner selection UI when proxy is checked.
     document.getElementById('is-proxy').addEventListener('change', (e) => {
         const isChecked = e.target.checked;
         document.getElementById('proxy-holder-group').style.display = isChecked ? 'block' : 'none';
@@ -398,26 +553,23 @@ async function initializeApp() {
             localStorage.setItem('strataPlans', JSON.stringify(data.plans));
             renderStrataPlans(data.plans);
 
-            // Restore SP selection from cookie
             const savedSP = document.cookie.split('; ').find(row => row.startsWith('selectedSP='))?.split('=')[1];
             if (savedSP && strataPlanSelect.querySelector(`option[value="${savedSP}"]`)) {
                 strataPlanSelect.value = savedSP;
             }
 
-            // Check for a cached meeting
             const cachedMeeting = JSON.parse(sessionStorage.getItem('activeMeeting'));
             if (cachedMeeting && cachedMeeting.spNumber === strataPlanSelect.value) {
                 showToast('Resuming previous meeting session.', 'info');
                 await loadMeeting(cachedMeeting.spNumber, cachedMeeting);
             } else if (strataPlanSelect.value) {
-                // If SP is selected but no meeting is cached, prompt for one
                 await promptForMeeting(strataPlanSelect.value);
             }
 
             if (user && user.role !== 'Admin' && data.plans.length === 1) {
                 strataPlanSelect.value = data.plans[0].sp_number;
                 strataPlanSelect.disabled = true;
-                if (!cachedMeeting) { // Trigger change only if no meeting is cached
+                if (!cachedMeeting) {
                     strataPlanSelect.dispatchEvent(new Event('change'));
                 }
             }

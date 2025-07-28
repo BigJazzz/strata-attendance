@@ -171,12 +171,11 @@ function generateReportHtml() {
     `;
 }
 
+const { jsPDF } = window.jspdf;
 
 /**
  * Handles the click event for the "Email PDF Report" button.
  */
-const { jsPDF } = window.jspdf;
-
 async function handleEmailReport() {
     if (!currentStrataPlan || !currentMeetingDate) {
         showToast('Please select a meeting before generating a report.', 'error');
@@ -196,7 +195,7 @@ async function handleEmailReport() {
     emailPdfBtn.disabled = true;
 
     try {
-        // 1. Generate PDF client-side
+        // 1. Generate the report's HTML content
         const reportHtmlString = generateReportHtml();
         const meetingTitle = `${currentMeetingType} - SP ${currentStrataPlan}`;
 
@@ -212,16 +211,19 @@ async function handleEmailReport() {
             hotfixes: ['px_scaling'],
         });
 
-        // Use html2canvas to render the HTML, then add it to the PDF
+        // Calculate the page's width, subtracting the horizontal margins (40px left + 40px right)
+        const contentWidth = pdf.internal.pageSize.getWidth() - 80;
+
+        // 2. Use html2canvas via pdf.html() to render the HTML and add it to the PDF
         await pdf.html(container, {
             callback: async function (doc) {
                 // Get the PDF as a Base64 string
                 const pdfBase64 = doc.output('datauristring').split(',')[1];
 
-                // 2. Send Base64 data to the server
+                // 3. Send the Base64 data to the server endpoint
                 const result = await apiPost('/report/email', {
                     recipientEmail,
-                    pdfBase64, // Send the PDF data instead of HTML
+                    pdfBase64,
                     meetingTitle
                 });
 
@@ -231,10 +233,10 @@ async function handleEmailReport() {
                     throw new Error(result.error);
                 }
             },
-            // Add this margin property
             margin: [40, 40, 40, 40],
-            width: pdf.internal.pageSize.getWidth(),
-            windowWidth: 650 // Adjust this width to match your report's desired appearance
+            autoPaging: 'slice',
+            width: contentWidth,
+            windowWidth: contentWidth
         });
 
         // Clean up the temporary element
